@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: epims-eps-core
+
+  data:
+    mongodb:
+      host: ${MONGODB_HOST:127.0.0.1}
+      port: ${MONGODB_PORT:27017}
+      database: ${MONGODB_DATABASE:epims_eps}
+      username: ${MONGODB_USERNAME}
+      password: ${MONGODB_PASSWORD}
+      authentication-database: ${MONGODB_AUTH_DATABASE:epims_eps}
+
+server:
+  port: 9080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+info:
+  app:
+    name: EPIMS EPS Core
+    description: Pharmacy order management backend
+    version: 0.1.0
