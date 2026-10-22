@@ -1609,3 +1609,363 @@ Enter the `epsAppUser` password when prompted.
 - The connection uses local MongoDB access; production deployments require appropriate network restrictions, TLS, and secure credential management.
 
 **Completion criteria:** Compass connects successfully using `epsAppUser` and can access the `epims_eps` database.
+
+# Step 7 — Connect the Local Repository to GitHub and Push Changes
+
+## 7.1 Objective
+
+Connect the local `epims-eps-core` Git repository to the existing GitHub repository, commit the EPIMS backend setup, preserve the remote repository's initial history, and push the changes to the `main` branch.
+
+**Repository details**
+
+| Property | Value |
+|---|---|
+| Local repository | `epims-eps-core` |
+| Remote name | `origin` |
+| Remote repository | `https://github.com/JoshuaPraveen99/epims-eps-core.git` |
+| Final branch | `main` |
+| Git hosting | GitHub |
+| Status | Completed |
+
+## 7.2 Navigate to the Local Repository
+
+Open PowerShell and navigate to the project directory:
+
+```powershell
+cd C:\Users\Joshua\Documents\EPIMS\epims-eps-core
+```
+
+Verify the current directory:
+
+```powershell
+Get-Location
+```
+
+## 7.3 Initialize and Configure Git
+
+Git was initialized locally during the initial repository setup:
+
+```powershell
+git init
+```
+
+Check the repository status:
+
+```powershell
+git status
+```
+
+The project initially had no local commits, and its files appeared as untracked.
+
+## 7.4 Configure the GitHub Remote
+
+The GitHub repository had already been created separately.
+
+Add the remote:
+
+```powershell
+git remote add origin https://github.com/JoshuaPraveen99/epims-eps-core.git
+```
+
+Verify the remote:
+
+```powershell
+git remote -v
+```
+
+Expected output:
+
+```text
+origin  https://github.com/JoshuaPraveen99/epims-eps-core.git (fetch)
+origin  https://github.com/JoshuaPraveen99/epims-eps-core.git (push)
+```
+
+The `origin` remote identifies the GitHub repository used to fetch and push changes.
+
+## 7.5 Fetch Existing Remote History
+
+The GitHub repository already contained an initial commit and the following branches:
+
+- `main`
+- `Nova/InitialSetup`
+- `release/nova`
+
+Fetch the remote branch information:
+
+```powershell
+git fetch origin
+```
+
+Inspect the remote branches:
+
+```powershell
+git branch -a
+```
+
+Inspect the commit history:
+
+```powershell
+git log --oneline --decorate --graph --all -10
+```
+
+The initial remote commit was:
+
+```text
+cf46bfe Initial commit
+```
+
+Because the local repository had no commits and the remote already had its own initial commit, the existing remote history needed to be preserved.
+
+## 7.6 Create a `.gitignore` File
+
+Create `.gitignore` in the repository root to exclude generated files and local secrets.
+
+```gitignore
+# Gradle generated files
+.gradle/
+build/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+out/
+
+# Eclipse
+.classpath
+.project
+.settings/
+
+# Operating system
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local configuration containing credentials
+application-local.yml
+application-local.yaml
+```
+
+Verify the untracked files:
+
+```powershell
+git status --short
+```
+
+The generated `.gradle/` and `build/` directories should be excluded from the untracked file listing.
+
+**Security requirement:** Review the project files before committing. Never commit database passwords, API tokens, private keys, or other credentials.
+
+## 7.7 Stage and Commit the Project Files
+
+Stage the intended project files:
+
+```powershell
+git add .gitignore build.gradle.kts settings.gradle.kts gradle gradlew gradlew.bat liberty readme.md src
+```
+
+Review the staged changes:
+
+```powershell
+git status
+git diff --cached --stat
+git diff --cached
+```
+
+After verifying the files and confirming that no secrets are staged, create the commit:
+
+```powershell
+git commit -m "Set up EPIMS EPS core backend"
+```
+
+The local project commit was:
+
+```text
+e698ff6 Set up EPIMS EPS core backend
+```
+
+## 7.8 Integrate the Existing Remote History
+
+Rename the local branch from `master` to `main`:
+
+```powershell
+git branch -M main
+```
+
+Merge the existing remote history without discarding either history:
+
+```powershell
+git merge origin/main --allow-unrelated-histories
+```
+
+This was necessary because the local project and the existing GitHub initial commit had been created independently.
+
+The resulting merge commit was:
+
+```text
+ac12dd5 Merge remote-tracking branch 'origin/main'
+```
+
+## 7.9 Push to GitHub
+
+Push the local `main` branch and configure upstream tracking:
+
+```powershell
+git push -u origin main
+```
+
+The `-u` option establishes `origin/main` as the upstream branch, so future pushes can generally use:
+
+```powershell
+git push
+```
+
+Fetch future changes with:
+
+```powershell
+git pull
+```
+
+Before pulling, ensure you understand any local changes or merge conflicts.
+
+## 7.10 Verify the Final Repository State
+
+Run:
+
+```powershell
+git status
+```
+
+Expected state:
+
+```text
+On branch main
+Your branch is up to date with 'origin/main'.
+
+nothing to commit, working tree clean
+```
+
+Inspect the latest commits:
+
+```powershell
+git log --oneline --decorate -5
+```
+
+The verified history included:
+
+```text
+ac12dd5 (HEAD -> main, origin/main) Merge remote-tracking branch 'origin/main'
+e698ff6 Set up EPIMS EPS core backend
+cf46bfe (origin/release/nova, origin/Nova/InitialSetup) Initial commit
+```
+
+This confirms that the local project commit and the original GitHub history were preserved.
+
+## 7.11 Git Workflow for Future Changes
+
+For subsequent changes to `epims-eps-core`, use the following workflow:
+
+### Check the current state
+
+```powershell
+git status
+git branch --show-current
+```
+
+### Stage and review changes
+
+```powershell
+git add <file-or-directory>
+git diff --cached
+```
+
+Replace `<file-or-directory>` with the specific files or directories being committed.
+
+### Commit changes
+
+```powershell
+git commit -m "Describe the change"
+```
+
+### Push changes
+
+```powershell
+git push
+```
+
+Use descriptive commit messages and review staged files for secrets before every commit.
+
+## 7.12 Completion Checklist
+
+- [x] Local Git repository initialized.
+- [x] GitHub remote configured.
+- [x] Existing remote branches fetched.
+- [x] `.gitignore` created.
+- [x] EPIMS project files committed.
+- [x] Local branch renamed to `main`.
+- [x] Existing remote history preserved.
+- [x] Changes pushed to GitHub.
+- [x] Local branch synchronized with `origin/main`.
+- [x] Working tree verified clean.
+
+**Step 7 status: Completed.**
+
+GitHub repository: https://github.com/JoshuaPraveen99/epims-eps-core
+
+---
+
+# Step 8 — Initialize the Centralized Configuration Repository
+
+**Status: Pending**
+
+## 8.1 Objective
+
+Create a separate private Git repository named `epims-config` to manage shared and service-specific, non-sensitive configuration for EPIMS microservices.
+
+The configuration repository will eventually contain files such as:
+
+```text
+epims-config/
+├── README.md
+├── application.yml
+├── epims-eps-core.yml
+├── epims-epr-core.yml
+├── epims-sbmo-core.yml
+└── epims-notification-service.yml
+```
+
+These files will follow Spring Cloud Config naming conventions.
+
+## 8.2 Planned Configuration Architecture
+
+- **`epims-config`:** Shared and service-specific non-sensitive application properties.
+- **Spring Cloud Config Server:** Retrieves configuration from the Git repository and serves it to Spring Boot services.
+- **Secret management:** Stores MongoDB passwords, API tokens, signing keys, and other sensitive credentials outside Git.
+- **Credential management API:** Allows authorized administrators to update secrets through a secured API backed by the secret-management system.
+- **`epims-infrastructure`:** Holds infrastructure and deployment configuration.
+
+## 8.3 Security Requirements
+
+- Never store database passwords or other secrets in Git.
+- Keep the configuration repository private and restrict access.
+- Use a dedicated secret-management solution for sensitive values.
+- Secure administrative configuration and credential update operations with authentication, authorization, auditing, and TLS.
+
+## 8.4 Planned Implementation
+
+1. Create the private `epims-config` repository on GitHub.
+2. Initialize it with a `README.md`.
+3. Clone it locally.
+4. Verify the Git remote and working-tree status.
+5. Create shared and service-specific configuration files.
+6. Commit and push the initial configuration structure.
+
+**Completion criteria:** The private configuration repository exists on GitHub, is cloned locally, and is ready for configuration files.
+
+**Step 8 status: Pending.**
