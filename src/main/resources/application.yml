@@ -2,14 +2,18 @@ spring:
   application:
     name: epims-eps-core
 
+  config:
+    import: "configserver:http://localhost:8888"
+
+
   data:
     mongodb:
       host: ${MONGODB_HOST:127.0.0.1}
       port: ${MONGODB_PORT:27017}
-      database: ${MONGODB_DATABASE:epims_eps}
+      database: ${MONGODB_DATABASE:epims-eps}
       username: ${MONGODB_USERNAME}
       password: ${MONGODB_PASSWORD}
-      authentication-database: ${MONGODB_AUTH_DATABASE:epims_eps}
+      authentication-database: ${MONGODB_AUTH_DATABASE:epims-eps}
 
 server:
   port: 9080

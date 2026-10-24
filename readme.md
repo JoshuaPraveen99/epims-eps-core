@@ -922,7 +922,7 @@ spring:
 
   data:
     mongodb:
-      uri: ${MONGODB_URI:mongodb://localhost:27017/epims_eps}
+      uri: ${MONGODB_URI:mongodb://localhost:27017/epims-eps}
 
 server:
   port: 9080
@@ -1042,7 +1042,7 @@ This downloads the MongoDB 8 image.
 ### 6.4 Create persistent storage
 
 ```powershell
-docker volume create epims-mongodb-data
+docker volume create epims-eps-core-data
 ```
 
 The named volume preserves MongoDB data when the container is stopped or recreated, provided the volume itself is retained.
@@ -1055,7 +1055,7 @@ For the initial unauthenticated setup, the container was created with:
 docker run -d `
   --name epims-mongodb `
   -p 127.0.0.1:27017:27017 `
-  -v epims-mongodb-data:/data/db `
+  -v epims-eps-core-data:/data/db `
   mongo:8
 ```
 
@@ -1067,7 +1067,7 @@ The port binding restricts host access to the local computer rather than all net
 
 ```powershell
 docker ps -a --filter "name=epims-mongodb"
-docker volume ls --filter "name=epims-mongodb-data"
+docker volume ls --filter "name=epims-eps-core-data"
 docker inspect epims-mongodb --format '{{json .Mounts}}'
 ```
 
@@ -1076,7 +1076,7 @@ Confirm that:
 - The container is named `epims-mongodb`.
 - The image is `mongo:8`.
 - Port `127.0.0.1:27017` is mapped to container port `27017`.
-- `epims-mongodb-data` is mounted at `/data/db`.
+- `epims-eps-core-data` is mounted at `/data/db`.
 
 Check MongoDB connectivity:
 
@@ -1112,7 +1112,7 @@ docker ps
 
 Stopping the container does not delete the named data volume.
 
-**Important:** Do not use `docker rm -v` or delete `epims-mongodb-data` when reconfiguring MongoDB.
+**Important:** Do not use `docker rm -v` or delete `epims-eps-core-data` when reconfiguring MongoDB.
 
 ---
 
@@ -1160,14 +1160,14 @@ In Compass:
 
 1. Connect to MongoDB.
 2. Click **Create database**.
-3. Enter database name `epims_eps`.
+3. Enter database name `epims-eps`.
 4. Enter collection name `orders`.
 5. Click **Create database**.
 
 The initial database structure will be:
 
 ```text
-epims_eps
+epims-eps
 └── orders
 ```
 
@@ -1183,12 +1183,12 @@ Then run:
 
 ```javascript
 show dbs
-use epims_eps
+use epims-eps
 show collections
 exit
 ```
 
-Expected: `epims_eps` appears after it contains data, and `orders` appears if the collection has been created.
+Expected: `epims-eps` appears after it contains data, and `orders` appears if the collection has been created.
 
 ---
 
@@ -1198,7 +1198,7 @@ Before enabling authentication, inspect the existing container and volume to avo
 
 ```powershell
 docker ps -a --filter "name=epims-mongodb"
-docker volume ls --filter "name=epims-mongodb-data"
+docker volume ls --filter "name=epims-eps-core-data"
 docker inspect epims-mongodb --format '{{json .Mounts}}'
 ```
 
@@ -1300,11 +1300,11 @@ The `root` role grants full administrative privileges. Use this account only for
 
 The administrator account exists, but authentication has not yet been enabled.
 
-The next task is to reconfigure the MongoDB container with authentication enabled, preserve `epims-mongodb-data`, and verify that unauthenticated connections are rejected and authenticated connections succeed.
+The next task is to reconfigure the MongoDB container with authentication enabled, preserve `epims-eps-core-data`, and verify that unauthenticated connections are rejected and authenticated connections succeed.
 
 Do not remove the existing data volume or recreate the database from scratch.
 
-After authentication is enabled, create a dedicated application user with permissions restricted to the `epims_eps` database.
+After authentication is enabled, create a dedicated application user with permissions restricted to the `epims-eps` database.
 
 The EPS application's MongoDB URI must then be configured through the `MONGODB_URI` environment variable or another secure secret-management mechanism. Do not commit credentials to the repository.
 
@@ -1323,7 +1323,7 @@ docker stop epims-mongodb
 docker rm epims-mongodb
 ```
 
-The container is removed, but the persistent `epims-mongodb-data` volume is retained.
+The container is removed, but the persistent `epims-eps-core-data` volume is retained.
 
 **Never use `docker rm -v` or delete the data volume during this procedure.**
 
@@ -1334,7 +1334,7 @@ docker run -d `
   --name epims-mongodb `
   --restart unless-stopped `
   -p 127.0.0.1:27017:27017 `
-  -v epims-mongodb-data:/data/db `
+  -v epims-eps-core-data:/data/db `
   mongo:8 mongod --auth
 ```
 
@@ -1343,7 +1343,7 @@ docker run -d `
 - `--name epims-mongodb`: Sets the container name.
 - `--restart unless-stopped`: Restarts the container automatically unless it has been explicitly stopped.
 - `127.0.0.1:27017:27017`: Restricts the published port to the local computer.
-- `epims-mongodb-data:/data/db`: Reuses the existing database files.
+- `epims-eps-core-data:/data/db`: Reuses the existing database files.
 - `mongod --auth`: Starts MongoDB with authentication enforcement enabled.
 
 ### 6.4.3 Verify the container
@@ -1404,10 +1404,10 @@ Create a dedicated MongoDB user for the EPIMS EPS Core Spring Boot application. 
 | Property | Value |
 |---|---|
 | Username | `epsAppUser` |
-| Database | `epims_eps` |
-| Authentication database | `epims_eps` |
+| Database | `epims-eps` |
+| Authentication database | `epims-eps` |
 | Role | `readWrite` |
-| Permission scope | `epims_eps` database only |
+| Permission scope | `epims-eps` database only |
 
 ### 6.5.3 Connect as the MongoDB Administrator
 
@@ -1422,13 +1422,13 @@ Enter the administrator password when prompted.
 Select the EPS database:
 
 ```javascript
-use epims_eps
+use epims-eps
 ```
 
 Expected output:
 
 ```text
-switched to db epims_eps
+switched to db epims-eps
 ```
 
 ### 6.5.4 Create the EPS Application User
@@ -1440,7 +1440,7 @@ db.createUser({
   user: "epsAppUser",
   pwd: passwordPrompt(),
   roles: [
-    { role: "readWrite", db: "epims_eps" }
+    { role: "readWrite", db: "epims-eps" }
   ]
 })
 ```
@@ -1455,13 +1455,13 @@ Expected result:
 
 ### 6.5.5 Verify the Application User
 
-While still in the `epims_eps` database, run:
+While still in the `epims-eps` database, run:
 
 ```javascript
 db.getUsers()
 ```
 
-Verify that `epsAppUser` exists with the `readWrite` role on `epims_eps`.
+Verify that `epsAppUser` exists with the `readWrite` role on `epims-eps`.
 
 Exit the administrator session:
 
@@ -1474,7 +1474,7 @@ exit
 Connect using the application account:
 
 ```powershell
-docker exec -it epims-mongodb mongosh --username epsAppUser --authenticationDatabase epims_eps --password
+docker exec -it epims-mongodb mongosh --username epsAppUser --authenticationDatabase epims-eps --password
 ```
 
 Enter the application user's password when prompted.
@@ -1482,13 +1482,13 @@ Enter the application user's password when prompted.
 Select the EPS database explicitly:
 
 ```javascript
-use epims_eps
+use epims-eps
 ```
 
 Expected output:
 
 ```text
-switched to db epims_eps
+switched to db epims-eps
 ```
 
 ### 6.5.7 Verify the Authenticated Identity
@@ -1503,11 +1503,11 @@ Verify that the output contains:
 
 ```javascript
 authenticatedUsers: [
-  { user: "epsAppUser", db: "epims_eps" }
+  { user: "epsAppUser", db: "epims-eps" }
 ]
 ```
 
-The authenticated role should include `readWrite` on `epims_eps`.
+The authenticated role should include `readWrite` on `epims-eps`.
 
 ### 6.5.8 Test Database Write Access
 
@@ -1548,9 +1548,9 @@ exit
 - Never use `epimsAdmin` as the application's database account.
 - Do not store MongoDB passwords in the README, source code, or Git repository.
 - Configure application credentials through environment variables or a secure secret-management system.
-- The `readWrite` role is limited to the `epims_eps` database and does not grant MongoDB server-administration privileges.
+- The `readWrite` role is limited to the `epims-eps` database and does not grant MongoDB server-administration privileges.
 
-**Completion criteria:** The application user authenticates successfully, has the expected `readWrite` role, and can insert, query, and delete documents in `epims_eps`.
+**Completion criteria:** The application user authenticates successfully, has the expected `readWrite` role, and can insert, query, and delete documents in `epims-eps`.
 
 ---
 
@@ -1558,7 +1558,7 @@ exit
 
 **Status: Pending**
 
-Configure MongoDB Compass to connect to the authenticated MongoDB container using `epsAppUser` and `epims_eps` as the authentication database. Then verify that the database and collections are accessible.
+Configure MongoDB Compass to connect to the authenticated MongoDB container using `epsAppUser` and `epims-eps` as the authentication database. Then verify that the database and collections are accessible.
 
 ## Step 6.6 — Connect MongoDB Compass with Authentication
 
@@ -1577,7 +1577,7 @@ https://www.mongodb.com/products/tools/compass
 Create a new connection and use:
 
 ```text
-mongodb://epsAppUser@127.0.0.1:27017/epims_eps?authSource=epims_eps
+mongodb://epsAppUser@127.0.0.1:27017/epims-eps?authSource=epims-eps
 ```
 
 Enter the `epsAppUser` password when prompted.
@@ -1589,15 +1589,15 @@ Enter the `epsAppUser` password when prompted.
 | Username | `epsAppUser` |
 | Host | `127.0.0.1` |
 | Port | `27017` |
-| Default database | `epims_eps` |
-| Authentication database | `epims_eps` |
+| Default database | `epims-eps` |
+| Authentication database | `epims-eps` |
 | Authentication mechanism | Negotiated by MongoDB driver |
 
 ### 6.6.4 Verify the connection
 
 1. Click **Connect**.
 2. Confirm that the connection succeeds.
-3. Locate the `epims_eps` database.
+3. Locate the `epims-eps` database.
 4. Expand the database and verify its collections.
 5. If the `orders` collection was previously created, verify that it is listed.
 
@@ -1608,7 +1608,7 @@ Enter the `epsAppUser` password when prompted.
 - Do not commit passwords or credential-bearing connection strings to Git.
 - The connection uses local MongoDB access; production deployments require appropriate network restrictions, TLS, and secure credential management.
 
-**Completion criteria:** Compass connects successfully using `epsAppUser` and can access the `epims_eps` database.
+**Completion criteria:** Compass connects successfully using `epsAppUser` and can access the `epims-eps` database.
 
 # Step 7 — Connect the Local Repository to GitHub and Push Changes
 
@@ -1919,53 +1919,1051 @@ Use descriptive commit messages and review staged files for secrets before every
 GitHub repository: https://github.com/JoshuaPraveen99/epims-eps-core
 
 ---
-
-# Step 8 — Initialize the Centralized Configuration Repository
-
-**Status: Pending**
+# Step 8 — Design the EPIMS Centralized Configuration System
 
 ## 8.1 Objective
 
-Create a separate private Git repository named `epims-config` to manage shared and service-specific, non-sensitive configuration for EPIMS microservices.
+Design a centralized configuration system for EPIMS microservices. Configuration must be version-controlled, service-specific, environment-aware, and secure.
 
-The configuration repository will eventually contain files such as:
+The design separates non-sensitive configuration from sensitive credentials and supports authorized credential updates through an API.
+
+## 8.2 Architecture Components
+
+1. **`epims-config`:** Private Git repository containing shared and service-specific YAML configuration with placeholders and non-sensitive defaults only.
+2. **Spring Cloud Config Server:** Retrieves configuration from Git and serves it to Spring Boot microservices.
+3. **Secret manager:** Stores database passwords, API tokens, signing keys, and other sensitive values.
+4. **Credential Management API:** Provides an authenticated and authorized mechanism to update secrets.
+5. **EPIMS microservices:** Consume the configuration and secrets required for their individual responsibilities.
+6. **`epims-infrastructure`:** Holds deployment and infrastructure configuration.
+
+OpenBao and HashiCorp Vault will be evaluated before selecting the secret manager.
+
+## 8.3 Planned Repository Structure
 
 ```text
 epims-config/
 ├── README.md
 ├── application.yml
 ├── epims-eps-core.yml
+├── epims-eps-core-dev.yml
+├── epims-eps-core-test.yml
 ├── epims-epr-core.yml
 ├── epims-sbmo-core.yml
-└── epims-notification-service.yml
+├── epims-notification-service.yml
+├── epims-api-gateway.yml
+└── epims-digital-core.yml
 ```
 
-These files will follow Spring Cloud Config naming conventions.
+Files will be introduced as the corresponding services are implemented.
 
-## 8.2 Planned Configuration Architecture
+## 8.4 Configuration and Secret Separation
 
-- **`epims-config`:** Shared and service-specific non-sensitive application properties.
-- **Spring Cloud Config Server:** Retrieves configuration from the Git repository and serves it to Spring Boot services.
-- **Secret management:** Stores MongoDB passwords, API tokens, signing keys, and other sensitive credentials outside Git.
-- **Credential management API:** Allows authorized administrators to update secrets through a secured API backed by the secret-management system.
-- **`epims-infrastructure`:** Holds infrastructure and deployment configuration.
+Git will contain only non-sensitive properties, defaults, and placeholders. Actual passwords, API tokens, private keys, and other credentials must never be committed.
 
-## 8.3 Security Requirements
+Illustrative configuration:
 
-- Never store database passwords or other secrets in Git.
-- Keep the configuration repository private and restrict access.
-- Use a dedicated secret-management solution for sensitive values.
-- Secure administrative configuration and credential update operations with authentication, authorization, auditing, and TLS.
+```yaml
+epims:
+  mongodb:
+    host: ${MONGODB_HOST}
+    port: ${MONGODB_PORT:27017}
+    database: ${MONGODB_DATABASE}
+    username: ${MONGODB_USERNAME}
+    password: ${MONGODB_PASSWORD}
+```
 
-## 8.4 Planned Implementation
+The placeholders must be resolved at runtime through a configured secret-management or environment-injection mechanism.
 
-1. Create the private `epims-config` repository on GitHub.
-2. Initialize it with a `README.md`.
-3. Clone it locally.
-4. Verify the Git remote and working-tree status.
-5. Create shared and service-specific configuration files.
-6. Commit and push the initial configuration structure.
+Private repository visibility does not make committed credentials safe. Accidentally exposed secrets must be rotated.
 
-**Completion criteria:** The private configuration repository exists on GitHub, is cloned locally, and is ready for configuration files.
+## 8.5 Secret Manager Requirements
 
-**Step 8 status: Pending.**
+The selected secret manager must support:
+
+- Secure secret storage and access policies.
+- Service-specific authentication and least-privilege access.
+- Secret recovery or versioning where supported.
+- Audit logging.
+- Secure secret updates through an API.
+- Local Docker development and future deployment.
+
+The final selection will consider licensing, operational complexity, security requirements, and the free-tier deployment objective.
+
+## 8.6 Credential Management API
+
+An illustrative endpoint is:
+
+```http
+PUT /api/v1/configuration/secrets/{service}/{secretName}
+```
+
+The final API contract will be established during implementation.
+
+Required controls:
+
+1. Authenticate the caller.
+2. Authorize changes for the specified service and secret.
+3. Validate the request.
+4. Update the secret manager.
+5. Record an audit event without logging secret values.
+6. Avoid returning secret values in API responses.
+7. Coordinate a safe application refresh or credential-rotation procedure.
+
+The API must use appropriate TLS, authorization, validation, and audit controls.
+
+## 8.7 Runtime Configuration Flow
+
+1. A service identifies its application name and active environment.
+2. Spring Cloud Config retrieves the corresponding Git-managed configuration.
+3. The service obtains its authorized secrets from the secret manager.
+4. Spring resolves properties and initializes the required integrations.
+5. Credential updates trigger a controlled refresh or connection-rotation process.
+
+Updating a stored secret does not automatically update existing database connections. Credential rotation must be implemented and tested explicitly.
+
+## 8.8 Security Requirements
+
+- Restrict access to Git and the secret manager.
+- Use distinct identities and least-privilege policies for services.
+- Do not use administrator credentials for routine application operations.
+- Protect sensitive traffic with TLS in deployed environments.
+- Keep secrets out of Git, logs, API responses, and error messages.
+- Implement auditing, backups, recovery, and credential rotation.
+- Verify software licensing and hosting constraints before finalizing component choices.
+
+## 8.9 Implementation Roadmap
+
+| Step | Task | Status |
+|---|---|---|
+| 8 | Design centralized configuration and secret management | In progress |
+| 9 | Create the private `epims-config` repository | Pending |
+| 10 | Define repository structure and YAML placeholders | Pending |
+| 11 | Select and run the secret manager locally | Pending |
+| 12 | Implement Spring Cloud Config Server | Pending |
+| 13 | Connect EPS to centralized configuration | Pending |
+| 14 | Implement and secure the credential management API | Pending |
+| 15 | Test credential rotation and failure recovery | Pending |
+
+**Completion criteria:** The architecture, repository responsibilities, secret-management approach, API responsibilities, and implementation roadmap are documented.
+
+**Next:** Step 9 — Initialize the `epims-config` GitHub repository.
+
+# Step 9 — Initialize the Centralized Configuration Repository
+
+## 9.1 Create the GitHub Repository
+
+**Objective:** Create a separate private Git repository for shared and service-specific, non-sensitive configuration used by EPIMS microservices.
+
+Repository details:
+
+- Repository name: `epims-config`
+- Owner: `JoshuaPraveen99`
+- Visibility: Private
+- Description: Centralized configuration for EPIMS pharmacy microservices
+- Initial file: `README.md`
+
+Procedure:
+
+1. Open https://github.com/new.
+2. Enter `epims-config` as the repository name.
+3. Set the description to `Centralized configuration for EPIMS pharmacy microservices`.
+4. Select Private visibility.
+5. Enable Add a README file.
+6. Leave the `.gitignore` template and license unselected.
+7. Create the repository.
+
+## 9.2 Clone the Repository Locally
+
+Open PowerShell and run:
+
+```powershell
+cd C:\Users\Joshua\Documents\EPIMS
+git clone https://github.com/JoshuaPraveen99/epims-config.git
+cd epims-config
+```
+
+## 9.3 Verify the Remote
+
+```powershell
+git remote -v
+```
+
+Expected remote:
+
+```text
+origin  https://github.com/JoshuaPraveen99/epims-config.git (fetch)
+origin  https://github.com/JoshuaPraveen99/epims-config.git (push)
+```
+
+## 9.4 Verify the Branch and Working Tree
+
+```powershell
+git branch --show-current
+git status
+```
+
+Confirm that the repository is on `main` and the working tree is clean.
+
+## 9.5 Security Requirements
+
+- Store only non-sensitive configuration and placeholders in Git.
+- Never commit actual database passwords, API tokens, private keys, or other credentials.
+- Store sensitive values separately in the selected secret-management system.
+- Restrict repository access to authorized contributors.
+
+**Completion criteria:** The private `epims-config` repository exists on GitHub, has been cloned locally, and its Git remote, branch, and working-tree status have been verified.
+
+**Status:** Pending confirmation.
+
+**Next:** Step 10 — Define the configuration repository structure and create the initial placeholder-only YAML files.
+
+### Step 10.1 — Create the Initial Configuration Files
+
+**Objective:** Create shared and EPS-specific YAML configuration files in the `epims-config` repository.
+
+**Repository location:**
+
+`C:\Users\Joshua\Documents\EPIMS\epims-config`
+
+#### Create `application.yml`
+
+This file contains shared configuration for EPIMS microservices.
+
+```yaml
+spring:
+  application:
+    name: ${SPRING_APPLICATION_NAME}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+```
+
+#### Create `epims-eps-core.yml`
+
+This file contains the MongoDB configuration properties required by the EPS Core service.
+
+```yaml
+spring:
+  data:
+    mongodb:
+      host: ${MONGODB_HOST}
+      port: ${MONGODB_PORT}
+      database: ${MONGODB_DATABASE}
+      username: ${MONGODB_USERNAME}
+      password: ${MONGODB_PASSWORD}
+      authentication-database: ${MONGODB_AUTH_DATABASE}
+```
+
+#### Verify the files
+
+```powershell
+Get-ChildItem
+git status --short
+```
+
+Expected files include:
+
+- `README.md`
+- `application.yml`
+- `epims-eps-core.yml`
+
+The YAML files may appear as untracked files until they are staged and committed.
+
+#### Security requirements
+
+- Never commit actual MongoDB credentials or other secrets.
+- Keep sensitive values in the selected secret manager.
+- Configure placeholder resolution when integrating Spring Cloud Config with the microservices.
+- Do not consider the application ready for database access until secret resolution and authenticated connectivity have been tested.
+
+**Completion criteria:** Both YAML files exist in the `epims-config` repository and contain placeholders instead of actual credentials.
+
+**Status:** Pending confirmation.
+
+## Step 10.2 — Inspect EPS and Central Configuration
+
+**Objective:** Review the existing EPS Gradle dependencies and application configuration before connecting the service to the centralized configuration repository.
+
+### Inspection commands
+
+Run from the EPS repository:
+
+```powershell
+Get-Content .\build.gradle.kts
+Get-Content .\src\main\resources\application.yml
+```
+
+Run from the `epims-config` repository:
+
+```powershell
+Get-ChildItem
+Get-Content .\application.yml
+Get-Content .\epims-eps-core.yml
+```
+
+### Review checklist
+
+- [ ] Confirm the Spring Boot and MongoDB dependencies in `build.gradle.kts`.
+- [ ] Review the existing EPS `application.yml`.
+- [ ] Confirm the centralized configuration files exist.
+- [ ] Verify that the centralized YAML files contain placeholders rather than real credentials.
+- [ ] Identify any existing configuration that must be preserved.
+
+### Security notes
+
+- Never commit real passwords, tokens, or private connection strings to Git.
+- Do not paste secrets into README files or chat messages.
+- Central configuration and secret management are separate responsibilities. The Config Server connection and secure credential retrieval will be configured in subsequent steps.
+
+**Status:** Inspection pending; complete this section after reviewing the files.
+
+## Step 10.3 — Create the Central Configuration Server Repository
+
+**Objective:** Create a dedicated repository for the Spring Cloud Config Server application.
+
+### Repository details
+
+- Repository: `epims-config-server`
+- Owner: `JoshuaPraveen99`
+- Visibility: Private
+- Purpose: Serve centralized application configuration from the `epims-config` Git repository.
+
+### Commands
+
+```powershell
+cd C:\Users\swoni\Documents\epims
+
+git clone https://github.com/JoshuaPraveen99/epims-config-server.git
+
+cd .\epims-config-server
+
+git remote -v
+git status
+```
+
+### Architecture separation
+
+- `epims-config`: Stores shared and service-specific YAML configuration.
+- `epims-config-server`: Hosts the Spring Boot application that reads and serves configuration.
+- `epims-eps-core`: Consumes centralized configuration when the Config Server integration is implemented.
+
+Secrets must remain outside Git and must eventually be supplied through the approved secret-management mechanism.
+
+**Status:** Pending repository creation and clone verification.
+
+## Step 10.4 — Create the Config Server Project Skeleton
+
+**Status:** Completed
+
+### Objective
+
+Create the initial Spring Boot project for `epims-config-server` using IntelliJ IDEA and Gradle Kotlin DSL.
+
+### Technology stack
+
+- Java: 25
+- Spring Boot: 4.0.9
+- Spring Cloud release train: 2025.1.4
+- Build system: Gradle Kotlin DSL
+- Application: Spring Cloud Config Server
+
+### Directory structure
+
+```text
+epims-config-server/
+├── .gradle/
+├── gradle/
+│   └── wrapper/
+│       ├── gradle-wrapper.jar
+│       └── gradle-wrapper.properties
+├── gradlew
+├── gradlew.bat
+├── build.gradle.kts
+├── settings.gradle.kts
+└── src/
+    └── main/
+        └── java/
+            └── com/
+                └── epims/
+                    └── configserver/
+                        └── ConfigServerApplication.java
+```
+
+*Note: `.gradle/` is generated Gradle state and should not be committed to Git. The wrapper scripts, wrapper JAR, and wrapper properties should be committed.*
+
+### 1. Gradle project settings
+
+File: `settings.gradle.kts`
+
+```kotlin
+rootProject.name = "epims-config-server"
+```
+
+This defines the Gradle project name.
+
+### 2. Gradle build configuration
+
+File: `build.gradle.kts`
+
+The build configuration declares:
+
+- The Java plugin.
+- Spring Boot plugin version `4.0.9`.
+- Spring dependency management plugin.
+- Java toolchain version `25`.
+- Maven Central as the dependency repository.
+- Spring Cloud BOM version `2025.1.4`.
+- Spring Web and Spring Cloud Config Server dependencies.
+- Spring Boot test dependency and JUnit Platform configuration.
+
+### 3. Java application entry point
+
+File: `src/main/java/com/epims/configserver/ConfigServerApplication.java`
+
+```java
+package com.epims.configserver;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.config.server.EnableConfigServer;
+
+@SpringBootApplication
+@EnableConfigServer
+public class ConfigServerApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(ConfigServerApplication.class, args);
+    }
+}
+```
+
+**Purpose:**
+
+- `@SpringBootApplication` enables Spring Boot application configuration and component scanning.
+- `@EnableConfigServer` enables Spring Cloud Config Server functionality.
+- `main()` starts the Spring Boot application.
+
+### 4. Gradle Wrapper setup
+
+The project was loaded as a Gradle project in IntelliJ IDEA, and the Gradle Wrapper files were created or configured.
+
+The wrapper provides a consistent Gradle version without requiring every developer to install Gradle globally.
+
+Wrapper files:
+
+- `gradlew` — Unix-like operating systems.
+- `gradlew.bat` — Windows.
+- `gradle/wrapper/gradle-wrapper.jar` — wrapper implementation.
+- `gradle/wrapper/gradle-wrapper.properties` — specifies the Gradle distribution.
+
+Verify the configured version and wrapper operation using:
+
+```powershell
+.\gradlew.bat --version
+```
+
+The actual Gradle version is determined by the `distributionUrl` in `gradle-wrapper.properties`.
+
+### 5. Architecture and security
+
+The Config Server will serve configuration from the private `epims-config` repository. The Git connection and authentication have not yet been configured.
+
+No database passwords, Git tokens, or other secrets should be committed to this repository.
+
+### Completion checklist
+
+- [x] Created the `epims-config-server` repository.
+- [x] Configured `settings.gradle.kts`.
+- [x] Configured `build.gradle.kts`.
+- [x] Created `ConfigServerApplication.java`.
+- [x] Created or configured the Gradle Wrapper through IntelliJ IDEA.
+- [ ] Verify the wrapper version and run a successful Gradle build.
+- [ ] Configure the Config Server to access the private Git repository.
+- [ ] Configure secure access to the Config Server.
+
+**Next step:** Verify Gradle compatibility and build the Config Server before configuring its Git repository connection.
+
+## Step 10.5 — Verify Gradle Wrapper and Build the Config Server
+
+**Objective:** Verify the Gradle Wrapper, confirm Java compatibility, and build the initial Config Server application.
+
+### Commands
+
+Run from the `epims-config-server` project root:
+
+```powershell
+java -version
+
+Get-Content .\gradle\wrapper\gradle-wrapper.properties
+
+.\gradlew.bat --version
+
+.\gradlew.bat clean build
+
+Get-ChildItem .\build\libs
+```
+
+### Verification checklist
+
+- [ ] Confirm the project root is correct.
+- [ ] Confirm the installed Java version.
+- [ ] Confirm IntelliJ's Gradle JVM is configured correctly.
+- [ ] Confirm the wrapper version supports Java 25.
+- [ ] Confirm the Wrapper runs successfully.
+- [ ] Confirm the Gradle build completes successfully.
+- [ ] Confirm the application JAR exists under `build/libs`.
+
+### Troubleshooting
+
+If the build fails, capture the relevant error and resolve it before proceeding. Do not commit secrets or change the configuration repository connection during this step.
+
+### Expected result
+
+The Config Server project compiles and produces a JAR artifact.
+
+**Status:** Pending verification.
+
+## Step 10.6 — Configure SSH Authentication for the Central Configuration Repository
+
+### Overview — How SSH Authentication Works
+
+**Objective:** Understand how the EPIMS Config Server securely accesses the private `epims-config` GitHub repository using SSH authentication.
+
+#### 1. Why SSH is required
+
+The `epims-config` repository contains centralized YAML configuration for EPIMS microservices. Since the repository is private, the Config Server needs authenticated access to retrieve configuration files.
+
+Instead of using a personal GitHub password or a personal access token, this setup uses a dedicated SSH key pair registered as a read-only deploy key.
+
+#### 2. How SSH key authentication works
+
+SSH uses a pair of cryptographic keys:
+
+- **Private key:** Kept secret on the machine or in the deployment environment running the Config Server.
+- **Public key:** Registered with GitHub on the `epims-config` repository.
+
+The public and private keys are mathematically related. GitHub stores the public key and uses it to verify that a connection possesses the corresponding private key.
+
+The private key is never sent to GitHub during normal SSH authentication.
+
+#### 3. EPIMS SSH authentication flow
+
+```text
++------------------------------------+
+| EPIMS Config Server                |
+|                                    |
+| Spring Cloud Config Server         |
++------------------+-----------------+
+                   |
+                   | Git fetch / clone
+                   v
++------------------------------------+
+| SSH Client                         |
+|                                    |
+| Uses dedicated private key         |
+| epims-config-readonly              |
++------------------+-----------------+
+                   |
+                   | SSH connection
+                   | git@github.com:22
+                   v
++------------------------------------+
+| GitHub                             |
+|                                    |
+| Verifies SSH authentication        |
+| using registered public key        |
++------------------+-----------------+
+                   |
+                   | Authorizes repository access
+                   v
++------------------------------------+
+| Private epims-config repository    |
+|                                    |
+| application.yml                    |
+| epims-eps-core.yml                 |
++------------------+-----------------+
+                   |
+                   | Configuration retrieved
+                   v
++------------------------------------+
+| EPIMS Config Server                |
+|                                    |
+| Serves configuration to authorized |
+| microservices                      |
++------------------------------------+
+```
+
+This diagram describes the intended architecture. The end-to-end flow will be verified after the Config Server's Git configuration is completed.
+
+#### 4. Why a read-only deploy key is used
+
+The SSH key is dedicated to the `epims-config` repository.
+
+- It can be restricted to that repository.
+- Write access remains disabled.
+- It is separate from personal GitHub credentials.
+- It can be replaced independently if compromised or during planned rotation.
+- The private key can be provisioned securely to the Config Server environment.
+
+**Important:** A deploy key is a repository-access credential, not a complete secret-management solution. MongoDB passwords and other application secrets must be managed separately.
+
+#### 5. SSH security considerations
+
+- Never commit private keys or passphrases to Git.
+- Verify GitHub's SSH host-key fingerprint before trusting a new host key.
+- Keep the deploy key read-only.
+- Restrict filesystem permissions and access to the private key.
+- Use a managed secret store or equivalent secure provisioning mechanism in production.
+- Rotate or revoke the key when necessary.
+- Protect the Config Server itself with authentication and network access controls.
+
+---
+
+### Step 10.6.1 — Create the SSH Directory and Generate a Dedicated SSH Key
+
+**Objective:** Create the SSH directory and generate a dedicated SSH key pair for read-only access from the Config Server to the private `epims-config` repository.
+
+#### 1. Create the SSH directory
+
+Run in Windows PowerShell or the IntelliJ IDEA terminal:
+
+```powershell
+New-Item -ItemType Directory -Force -Path "$HOME\.ssh"
+```
+
+This creates the `.ssh` directory under the current Windows user's home directory if it does not already exist.
+
+Expected location:
+
+```text
+C:\Users\swoni\.ssh
+```
+
+The `-Force` parameter allows the command to run when the directory already exists.
+
+#### 2. Generate the SSH key pair
+
+Run:
+
+```powershell
+ssh-keygen -t ed25519 -f "$HOME\.ssh\epims-config-readonly" -C "epims-config-server-readonly"
+```
+
+When prompted for a passphrase, press **Enter twice** to use an empty passphrase for this local development setup.
+
+**Production note:** For production deployments, use a managed secret store or SSH agent with appropriate access controls. An unencrypted private key requires particularly careful filesystem and runtime protection.
+
+#### 3. Verify the generated files
+
+Run:
+
+```powershell
+Get-ChildItem "$HOME\.ssh\epims-config-readonly*"
+```
+
+The following files should exist:
+
+```text
+epims-config-readonly
+epims-config-readonly.pub
+```
+
+#### 4. Understand the generated files
+
+| File | Purpose |
+|---|---|
+| `epims-config-readonly` | Private key; must remain secret |
+| `epims-config-readonly.pub` | Public key; registered with GitHub |
+
+Display the public key only when preparing to register it:
+
+```powershell
+Get-Content "$HOME\.ssh\epims-config-readonly.pub"
+```
+
+To copy the public key to the clipboard:
+
+```powershell
+Get-Content "$HOME\.ssh\epims-config-readonly.pub" | Set-Clipboard
+```
+
+#### 5. Security requirements
+
+- Never share the private key or commit it to Git.
+- Register the public key as a **read-only deploy key** on the private `epims-config` repository.
+- Do not enable write access for the deploy key.
+- Keep the private key outside the application repositories.
+- In deployment environments, provision the private key securely and restrict filesystem access to the Config Server process.
+
+#### 6. Verification checklist
+
+- [x] Created or verified the `.ssh` directory.
+- [x] Generated the dedicated SSH key pair.
+- [x] Confirmed that both key files exist.
+- [x] Registered the public key with the `epims-config` repository.
+- [x] Verified that the deploy key has read-only access.
+
+**Status:** Completed.
+
+---
+
+### Step 10.6.2 — Register the SSH Public Key as a Read-Only Deploy Key
+
+**Objective:** Grant the Config Server read-only SSH access to the private `epims-config` repository.
+
+#### 1. Copy the public key
+
+Run:
+
+```powershell
+Get-Content "$HOME\.ssh\epims-config-readonly.pub" | Set-Clipboard
+```
+
+This copies the public key to the clipboard. The private key is not copied.
+
+#### 2. Register the key with GitHub
+
+Open the `epims-config` repository:
+
+https://github.com/JoshuaPraveen99/epims-config
+
+Navigate to:
+
+**Settings → Deploy keys → Add deploy key**
+
+Enter the following details:
+
+- **Title:** `epims-config-server-readonly`
+- **Key:** Paste the contents of `epims-config-readonly.pub`.
+- **Allow write access:** Leave unchecked.
+
+Save the deploy key.
+
+#### 3. Verify registration
+
+Return to **Settings → Deploy keys** and confirm that:
+
+- The deploy key is listed.
+- The title is `epims-config-server-readonly`.
+- Write access is disabled.
+
+#### 4. Security requirements
+
+- The public key may be registered with GitHub.
+- Never upload or commit the private key.
+- Keep the deploy key read-only.
+- Use the key only for the intended repository access.
+
+#### 5. Verification checklist
+
+- [x] Deploy key appears in the repository's Deploy keys settings.
+- [x] Write access is disabled.
+- [x] Private key remains outside Git repositories.
+
+**Status:** Completed.
+
+---
+
+### Step 10.6.3 — Test SSH Authentication and Repository Access
+
+**Objective:** Verify that the dedicated SSH deploy key can authenticate with GitHub and read the private `epims-config` repository.
+
+#### 1. Test SSH authentication
+
+Run in PowerShell:
+
+```powershell
+ssh -i "$HOME\.ssh\epims-config-readonly" -o IdentitiesOnly=yes -T git@github.com
+```
+
+The command explicitly selects the dedicated private key rather than relying on other keys configured on the machine.
+
+The first connection may display a host-key verification prompt.
+
+**Security requirement:** Verify GitHub's published SSH host-key fingerprint against its official documentation before accepting an unfamiliar host key:
+
+https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+
+A successful authentication typically displays a message confirming that GitHub has authenticated the account but does not provide shell access. This is normal for GitHub.
+
+#### 2. Test access to the private repository
+
+Run:
+
+```powershell
+$env:GIT_SSH_COMMAND = "ssh -i `"$HOME\.ssh\epims-config-readonly`" -o IdentitiesOnly=yes"
+
+git ls-remote git@github.com:JoshuaPraveen99/epims-config.git
+
+Remove-Item Env:\GIT_SSH_COMMAND
+```
+
+The command temporarily tells Git to use the dedicated SSH key.
+
+**Expected result:** Git prints the available repository references and their commit hashes, such as `refs/heads/main`, if the repository has branches.
+
+If the repository has no references, the command may return no output. In that case, successful SSH authentication alone does not prove that Git can retrieve configuration files.
+
+The final command removes the temporary environment variable.
+
+#### 3. Troubleshooting
+
+**Error: `Permission denied (publickey)`**
+
+- Verify that the public key was added to the correct repository.
+- Confirm that the private-key file exists.
+- Confirm that the SSH command uses the intended private key.
+
+**Error: `Host key verification failed`**
+
+- Verify the GitHub host-key fingerprint against the official documentation.
+- Do not disable host-key verification as a workaround.
+
+**Error: `Repository not found`**
+
+- Verify the repository name and SSH URL.
+- Confirm that the deploy key is registered on `epims-config`.
+- Confirm that the key is associated with the correct repository.
+
+#### 4. Security requirements
+
+- Use the dedicated private key for the test.
+- Never display or share the private key.
+- Keep write access disabled.
+- Remove temporary environment variables after testing.
+- Do not commit credentials or private keys to Git.
+
+#### 5. Verification checklist
+
+- [ ] SSH authentication succeeds using the dedicated key.
+- [ ] GitHub's host-key fingerprint has been verified.
+- [ ] Repository access has been confirmed with `git ls-remote`.
+- [ ] The temporary `GIT_SSH_COMMAND` environment variable has been removed.
+
+**Status:** Pending SSH authentication and repository-access verification.
+
+### Result of Step 10.6
+
+Once Step 10.6.3 succeeds, the dedicated SSH key will be registered and verified for read-only access to `epims-config`.
+
+The next step is to configure `epims-config-server` to use the repository's SSH URL and private-key location, and then verify that Spring Cloud Config can retrieve the centralized YAML files.
+
+The private key must remain outside Git and be provisioned securely to the server runtime. The repository-access test does not yet verify end-to-end Spring Cloud Config Server operation.
+
+### Step 10.7 — Configure the Config Server Git Backend
+
+**Objective:** Configure `epims-config-server` to retrieve centralized configuration from the private `epims-config` GitHub repository over SSH.
+
+#### Configuration file
+
+Location: `epims-config-server/src/main/resources/application.yml`
+
+The configuration defines:
+
+- Server port: `8888`
+- Application name: `epims-config-server`
+- Git repository: `git@github.com:JoshuaPraveen99/epims-config.git`
+- Default branch: `main`
+- Clone repository at startup: enabled
+- SSH private key: supplied through `CONFIG_GIT_PRIVATE_KEY`
+- Known hosts: `${user.home}/.ssh/known_hosts`
+- Strict SSH host-key checking: enabled
+- Actuator health and info endpoints
+
+#### Security requirements
+
+- Do not put the private key directly in the YAML file.
+- Do not commit private keys or other credentials.
+- Supply `CONFIG_GIT_PRIVATE_KEY` securely at runtime.
+- Keep SSH host-key verification enabled.
+- Restrict access to the Config Server and its configuration endpoints.
+
+#### Verification checklist
+
+- [ ] Created `src/main/resources/application.yml`.
+- [ ] Verified the SSH repository URI and branch.
+- [ ] Confirmed that the YAML contains no private-key contents.
+- [ ] Confirmed the GitHub host entry exists in `known_hosts`.
+- [ ] Configured the private-key environment variable securely.
+- [ ] Started the Config Server and tested configuration retrieval.
+
+**Status:** Configuration file creation pending verification. Runtime SSH configuration and end-to-end testing remain outstanding.
+
+#### Step 10.7.2 — Generate a Config Server-Compatible RSA PEM Key
+
+**Objective:** Generate an RSA private key in PEM format for the Spring Cloud Config Server Git backend.
+
+**Reason:** The configured property-based SSH authentication requires a private-key format supported by the Config Server's Git implementation.
+
+**Command:**
+
+```powershell
+ssh-keygen -m PEM -t rsa -b 4096 `
+  -f "$HOME\.ssh\epims-config-server-rsa" `
+  -C "epims-config-server-readonly"
+```
+
+For local development, leave the passphrase empty and protect the private key carefully.
+
+**Verification:**
+
+```powershell
+Get-ChildItem "$HOME\.ssh\epims-config-server-rsa*"
+
+Get-Content "$HOME\.ssh\epims-config-server-rsa" -TotalCount 1
+```
+
+Expected first line: `-----BEGIN RSA PRIVATE KEY-----`
+
+**Security:** Keep the private key outside Git. Only the corresponding public key may be registered with GitHub, with write access disabled.
+
+**Status:** Pending key generation and verification.
+
+#### Step 10.7.3 — Register and Test the Config Server RSA Deploy Key
+
+**Objective:** Register the RSA public key for read-only access to the private `epims-config` repository and verify that Git can authenticate with it.
+
+**Copy the public key:**
+
+```powershell
+Get-Content "$HOME\.ssh\epims-config-server-rsa.pub" | Set-Clipboard
+```
+
+**GitHub registration:**
+
+1. Open `epims-config`.
+2. Navigate to **Settings → Deploy keys → Add deploy key**.
+3. Set the title to `epims-config-server-rsa-readonly`.
+4. Paste the RSA public key.
+5. Leave write access disabled.
+6. Save the deploy key.
+
+**Test repository access:**
+
+```powershell
+$env:GIT_SSH_COMMAND = "ssh -i `"$HOME\.ssh\epims-config-server-rsa`" -o IdentitiesOnly=yes"
+
+git ls-remote git@github.com:JoshuaPraveen99/epims-config.git
+
+Remove-Item Env:\GIT_SSH_COMMAND
+```
+
+**Security requirements:**
+
+- Keep the RSA private key outside Git.
+- Register only the public key.
+- Keep the deploy key read-only.
+- Remove the temporary environment variable after testing.
+
+**Status:** Pending GitHub registration and repository-access verification.
+
+#### Step 10.7.4 — Configure and Verify the Config Server
+
+**Objective:** Configure Spring Cloud Config Server to authenticate with the private `epims-config` GitHub repository using a runtime-provided RSA private key.
+
+**Configuration:**
+- Config Server port: `8888`
+- Git repository: `git@github.com:JoshuaPraveen99/epims-config.git`
+- Default branch: `main`
+- Private key supplied through `CONFIG_GIT_PRIVATE_KEY`
+- GitHub host verification enabled
+- Automatic repository clone at startup enabled
+
+**Runtime setup:**
+
+```powershell
+$env:CONFIG_GIT_PRIVATE_KEY = Get-Content "$HOME\.ssh\epims-config-server-rsa" -Raw
+Set-Location "C:\Users\swoni\Documents\epims\epims-config-server"
+.\gradlew.bat bootRun
+```
+
+**Verification endpoint:**
+
+```text
+http://localhost:8888/epims-eps-core/default
+```
+
+The endpoint should return the EPS configuration environment, including its application name, active profile information, and property sources.
+
+**Security requirements:**
+- Never commit private keys or actual credentials to Git.
+- Do not print or share private-key contents.
+- Keep the GitHub deploy key read-only.
+- Remove the temporary environment variable after stopping the server.
+
+**Status:** Pending successful Config Server startup and endpoint verification.
+
+
+**Configuration flow diagram:**
+
+```mermaid
+flowchart TD
+    A["EPIMS EPS Core"] -->|"Requests configuration"| B["EPIMS Config Server<br/>Port 8888"]
+    B -->|"Read-only SSH authentication"| C["Private GitHub Repository<br/>epims-config"]
+    C --> D["main branch"]
+    D --> E["application.yml<br/>Shared configuration"]
+    D --> F["epims-eps-core.yml<br/>EPS-specific configuration"]
+    E --> B
+    F --> B
+    B -->|"Returns configuration JSON"| A
+```
+#### Step 10.7.5.1 — Add Spring Cloud Config Client
+
+**Objective:** Add the client library required for EPS Core to retrieve centralized configuration from EPIMS Config Server.
+
+**Repository:** `epims-eps-core`
+
+**File modified:** `build.gradle.kts`
+
+**Dependency added:**
+
+```kotlin
+implementation("org.springframework.cloud:spring-cloud-starter-config")
+```
+
+**Dependency management:**
+
+- Spring Cloud release train: `2025.1.4`
+- Spring Cloud BOM imported through Gradle dependency management.
+- Existing Java, Spring Boot, MongoDB, Web, Actuator, and WAR configuration retained.
+
+**Verification:**
+
+Reload Gradle in IntelliJ or execute:
+
+```powershell
+.\gradlew.bat dependencies
+```
+
+**Status:** Pending Gradle reload and dependency verification.
+
+#### Step 10.7.5.2 — Configure EPS Core to Contact Config Server
+
+**Objective:** Configure EPS Core to retrieve remote configuration from the centralized EPIMS Config Server.
+
+**Repository:** `epims-eps-core`
+
+**File modified:** `src/main/resources/application.yml`
+
+**Configuration added:**
+
+```yaml
+spring:
+  config:
+    import: "configserver:http://localhost:8888"
+```
+
+**Existing settings preserved:**
+- Application name: `epims-eps-core`
+- Application port: `9080`
+- MongoDB environment-variable placeholders and local defaults
+- Actuator health and information endpoints
+- Application metadata
+
+**Startup requirement:** Start the Config Server before EPS Core. The configuration import is mandatory, so EPS will report an error if the remote configuration cannot be loaded.
+
+**Status:** Pending startup and remote-configuration verification.
+
