@@ -1,4 +1,22 @@
-docker ps -a --filter "name=epims-mongodb"# EPIMS Pharmacy System — EPS Core Backend
+# EPIMS Pharmacy System — EPS Core Backend
+
+## System Architecture at a Glance
+
+> **Diagram assets:** The images are stored under `docs/diagrams/`. Keep this folder alongside `README.md` when copying the README or pushing it to GitHub; otherwise, the images will not render.
+
+The following block diagram shows the intended system-level design. The repository and configuration components mentioned later in this README are at different implementation stages; the diagram is an architecture target, not a claim that every service is already running.
+
+![EPIMS Pharmacy System target architecture](docs/diagrams/epims-system-architecture.png)
+
+**Architecture interpretation**
+- The service names describe planned repository responsibilities. Implement services incrementally and verify each integration.
+- `epims-config` stores non-sensitive configuration and placeholders only.
+- `epims-config-server` reads the private configuration repository using a dedicated read-only SSH deploy key.
+- The SSH key is for Git repository access; it is not an application database password or a general-purpose secret.
+- OpenBao and the secret-management API are planned components. Do not assume secret placeholders are resolved until the integration is implemented and tested.
+- `epims-infrastructure` is intended to own container orchestration and deployment configuration. The Config Server application itself stays in `epims-config-server`.
+
+---
 
 ## 1. Project Overview
 
@@ -26,11 +44,13 @@ For mail orders, the workflow will integrate with SBMO for packing, fulfillment,
 
 These workflows describe the intended architecture; they will be implemented incrementally.
 
+![EPS pharmacy order workflow](docs/diagrams/eps-pharmacy-workflow.png)
+
 ### 1.3 Technology Stack
 
 | Technology | Purpose |
 |---|---|
-| Java 21 | Application programming language |
+| Java 25 | Application programming language |
 | Spring Boot | Backend application framework |
 | Gradle Kotlin DSL | Build and dependency management |
 | MongoDB | Document-oriented database |
@@ -455,6 +475,9 @@ Empty source directories are normal at this stage. They will contain files as we
 ---
 
 ## 5. Development Rules
+
+> **Current decision update (supersedes older setup values below):** The current EPIMS setup uses **Java 25**, **Spring Boot 4.0.9**, **Gradle Kotlin DSL**, and **Spring Cloud release train 2025.1.4** for the Config Server and EPS Config Client integration. Some early development-log steps below record the original Java 21 / Spring Boot 3.3.4 setup. Those values are retained as historical context, not as the versions to choose when recreating the current project. For a clean recreation, use the current version values recorded in Step 10.4 and the actual Gradle Wrapper version verified against Java 25. Do not force Gradle 8.10.2 if it is incompatible with the selected Java toolchain.
+
 
 1. Create the project manually without Spring Initializr.
 2. Use Java 21 and Gradle Kotlin DSL.
@@ -1296,22 +1319,6 @@ The `root` role grants full administrative privileges. Use this account only for
 
 ## Step 6.4 — Enable MongoDB Authentication
 
-**Status: Pending**
-
-The administrator account exists, but authentication has not yet been enabled.
-
-The next task is to reconfigure the MongoDB container with authentication enabled, preserve `epims-eps-core-data`, and verify that unauthenticated connections are rejected and authenticated connections succeed.
-
-Do not remove the existing data volume or recreate the database from scratch.
-
-After authentication is enabled, create a dedicated application user with permissions restricted to the `epims-eps` database.
-
-The EPS application's MongoDB URI must then be configured through the `MONGODB_URI` environment variable or another secure secret-management mechanism. Do not commit credentials to the repository.
-
----
-
-## Step 6.4 — Enable MongoDB Authentication
-
 ### Objective
 
 Enable MongoDB access control while retaining the existing EPIMS database and administrator account.
@@ -1553,12 +1560,6 @@ exit
 **Completion criteria:** The application user authenticates successfully, has the expected `readWrite` role, and can insert, query, and delete documents in `epims-eps`.
 
 ---
-
-## Step 6.6 — Connect MongoDB Compass with Authentication
-
-**Status: Pending**
-
-Configure MongoDB Compass to connect to the authenticated MongoDB container using `epsAppUser` and `epims-eps` as the authentication database. Then verify that the database and collections are accessible.
 
 ## Step 6.6 — Connect MongoDB Compass with Authentication
 
@@ -2451,50 +2452,7 @@ The private key is never sent to GitHub during normal SSH authentication.
 
 #### 3. EPIMS SSH authentication flow
 
-```text
-+------------------------------------+
-| EPIMS Config Server                |
-|                                    |
-| Spring Cloud Config Server         |
-+------------------+-----------------+
-                   |
-                   | Git fetch / clone
-                   v
-+------------------------------------+
-| SSH Client                         |
-|                                    |
-| Uses dedicated private key         |
-| epims-config-readonly              |
-+------------------+-----------------+
-                   |
-                   | SSH connection
-                   | git@github.com:22
-                   v
-+------------------------------------+
-| GitHub                             |
-|                                    |
-| Verifies SSH authentication        |
-| using registered public key        |
-+------------------+-----------------+
-                   |
-                   | Authorizes repository access
-                   v
-+------------------------------------+
-| Private epims-config repository    |
-|                                    |
-| application.yml                    |
-| epims-eps-core.yml                 |
-+------------------+-----------------+
-                   |
-                   | Configuration retrieved
-                   v
-+------------------------------------+
-| EPIMS Config Server                |
-|                                    |
-| Serves configuration to authorized |
-| microservices                      |
-+------------------------------------+
-```
+![Config Server SSH authentication flow](docs/diagrams/config-server-ssh-flow.png)
 
 This diagram describes the intended architecture. The end-to-end flow will be verified after the Config Server's Git configuration is completed.
 
@@ -2822,6 +2780,114 @@ Expected first line: `-----BEGIN RSA PRIVATE KEY-----`
 
 **Status:** Pending key generation and verification.
 
+#### Additional SSH setup details — host verification, key validation, and common recovery
+
+Use these checks if reproducing the setup on a new Windows machine or if SSH authentication works in one terminal but fails when Spring Cloud Config starts.
+
+##### A. Check OpenSSH availability
+
+Run in PowerShell:
+
+```powershell
+ssh -V
+ssh-keygen -?
+where.exe ssh
+where.exe ssh-keygen
+```
+
+If commands are not found, install/enable the Windows OpenSSH Client feature, reopen PowerShell, and repeat the checks. IntelliJ's terminal normally uses the same Windows executables when they are on `PATH`.
+
+##### B. Check whether key files already exist before generating new ones
+
+```powershell
+Get-ChildItem "$HOME\.ssh" -Force
+Test-Path "$HOME\.ssh\epims-config-server-rsa"
+Test-Path "$HOME\.ssh\epims-config-server-rsa.pub"
+```
+
+Do not overwrite an existing key without confirming where it is used. If a key already exists and is the intended key, validate and reuse it rather than generating another key and leaving GitHub with a mismatched public key.
+
+##### C. Verify the RSA private key without displaying the key contents
+
+```powershell
+Get-Content "$HOME\.ssh\epims-config-server-rsa" -TotalCount 1
+Get-Content "$HOME\.ssh\epims-config-server-rsa" | Select-Object -Last 1
+ssh-keygen -y -f "$HOME\.ssh\epims-config-server-rsa" | Out-Null
+$LASTEXITCODE
+```
+
+Expected format for this setup:
+
+```text
+-----BEGIN RSA PRIVATE KEY-----
+...
+-----END RSA PRIVATE KEY-----
+```
+
+The final command should return exit code `0`. Do not paste the private-key body into a ticket, README, GitHub issue, or chat. If the key is encrypted, `ssh-keygen` may prompt for its passphrase.
+
+##### D. Verify that the public key corresponds to the private key
+
+```powershell
+ssh-keygen -y -f "$HOME\.ssh\epims-config-server-rsa"
+Get-Content "$HOME\.ssh\epims-config-server-rsa.pub"
+```
+
+Compare the generated public-key line with the `.pub` file. They should match. The public key is the one registered with GitHub; never upload the private key.
+
+##### E. Populate `known_hosts` only after verifying GitHub's fingerprint
+
+First, read GitHub's official SSH fingerprint page and compare the published fingerprint with a trusted value:
+https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+
+Then obtain the host-key records:
+
+```powershell
+New-Item -ItemType Directory -Force -Path "$HOME\.ssh" | Out-Null
+ssh-keyscan github.com 2>$null | Add-Content "$HOME\.ssh\known_hosts"
+ssh-keygen -lf "$HOME\.ssh\known_hosts"
+```
+
+**Important:** `ssh-keyscan` collects keys but does not itself authenticate them. Do not trust the output until its fingerprints have been compared with GitHub's official published fingerprints. If there is a mismatch, stop and investigate; do not disable strict host-key checking as a workaround.
+
+##### F. Test the exact RSA key and the private repository
+
+```powershell
+ssh -i "$HOME\.ssh\epims-config-server-rsa" -o IdentitiesOnly=yes -T git@github.com
+$env:GIT_SSH_COMMAND = "ssh -i `"$HOME\.ssh\epims-config-server-rsa`" -o IdentitiesOnly=yes"
+git ls-remote git@github.com:JoshuaPraveen99/epims-config.git
+Remove-Item Env:\GIT_SSH_COMMAND
+```
+
+GitHub may state that authentication succeeded but shell access is unavailable; that is normal. `git ls-remote` should list refs and commit hashes if the repository has refs. If it fails, check the SSH key registration, repository URL, host-key verification, and network access to port 22.
+
+##### G. Avoid common private-key environment-variable mistakes
+
+The Config Server configuration uses `CONFIG_GIT_PRIVATE_KEY`. For local PowerShell testing, set it only in the terminal that will launch the Config Server:
+
+```powershell
+$env:CONFIG_GIT_PRIVATE_KEY = Get-Content "$HOME\.ssh\epims-config-server-rsa" -Raw
+```
+
+Do not run `Write-Output $env:CONFIG_GIT_PRIVATE_KEY`, `Get-Content` on the private key for display, or any command that prints the variable. Start the server from that same PowerShell session. When finished, stop the server and remove the variable:
+
+```powershell
+Remove-Item Env:\CONFIG_GIT_PRIVATE_KEY -ErrorAction SilentlyContinue
+```
+
+A PowerShell process environment variable is not a durable production secret-management method. For containers and production, inject the key through the approved secret store or protected deployment secret mechanism. Do not bake the key into a Docker image or commit it to a repository.
+
+##### H. Error-to-action guide
+
+| Error or symptom | Checks and remedy |
+|---|---|
+| `Permission denied (publickey)` | Confirm the matching `.pub` key is registered as a deploy key on `epims-config`; test with `-i` and `IdentitiesOnly=yes`; verify the correct private-key path. |
+| `Host key verification failed` | Verify the GitHub fingerprint and repair `known_hosts`; do not disable strict host-key checking. |
+| `Repository not found` | Check owner/repository spelling and that the deploy key belongs to `epims-config`. |
+| `invalid private key` or `privateKey is not a valid private key` | Verify PEM header/footer and key readability; this Config Server setup uses the RSA PEM key because the earlier Ed25519 key was rejected by the configured property-based integration. |
+| SSH test succeeds but Config Server fails | Confirm `CONFIG_GIT_PRIVATE_KEY` is set in the same process environment, the application is configured to use that variable, `known_hosts` is at the path the server reads, and the Config Server logs show the underlying Git/SSH error. |
+| Config Server returns placeholders literally | Git retrieval may be working, but Config Server does not automatically resolve application secret placeholders. Secret injection or secret-manager integration remains a separate task. |
+
 #### Step 10.7.3 — Register and Test the Config Server RSA Deploy Key
 
 **Objective:** Register the RSA public key for read-only access to the private `epims-config` repository and verify that Git can authenticate with it.
@@ -2899,17 +2965,7 @@ The endpoint should return the EPS configuration environment, including its appl
 
 **Configuration flow diagram:**
 
-```mermaid
-flowchart TD
-    A["EPIMS EPS Core"] -->|"Requests configuration"| B["EPIMS Config Server<br/>Port 8888"]
-    B -->|"Read-only SSH authentication"| C["Private GitHub Repository<br/>epims-config"]
-    C --> D["main branch"]
-    D --> E["application.yml<br/>Shared configuration"]
-    D --> F["epims-eps-core.yml<br/>EPS-specific configuration"]
-    E --> B
-    F --> B
-    B -->|"Returns configuration JSON"| A
-```
+![EPS Config Client and Config Server request flow](docs/diagrams/config-server-ssh-flow.png)
 #### Step 10.7.5.1 — Add Spring Cloud Config Client
 
 **Objective:** Add the client library required for EPS Core to retrieve centralized configuration from EPIMS Config Server.
@@ -2967,3 +3023,974 @@ spring:
 
 **Status:** Pending startup and remote-configuration verification.
 
+
+
+---
+
+## Reproduction Notes and Final Verification
+
+This README preserves the original detailed step-by-step development log, command examples, explanations, and troubleshooting records. Where the log contains early setup values that differ from the current implementation, use the current decision note in Section 5 and the latest configuration sections as the source of truth.
+
+Before declaring a fresh setup complete, verify these independently:
+
+1. `epims-eps-core` builds using the chosen Java 25-compatible Gradle Wrapper.
+2. MongoDB 8 is running with authentication enabled and the persistent `epims-eps-core-data` volume retained.
+3. The `epsAppUser` account authenticates against `epims-eps` and has only the intended database permissions.
+4. MongoDB Compass connects using the application account.
+5. `epims-config` contains only placeholders and non-sensitive configuration.
+6. The RSA PEM private key is outside Git and is injected only into the Config Server runtime.
+7. GitHub host-key verification is enabled and the fingerprint has been verified.
+8. `epims-config-server` retrieves the private repository's `main` branch and serves `http://localhost:8888/epims-eps-core/default`.
+9. EPS includes the Spring Cloud Config Client and starts with the intended Config Server import.
+10. The current end-to-end EPS startup is tested only after configuration, MongoDB authentication, and runtime secret resolution are all compatible.
+
+A successful Config Server response that contains literal values such as `${MONGODB_PASSWORD}` confirms configuration retrieval, **not** secret resolution or successful database connectivity.
+
+# EPIMS Infrastructure
+
+## Step 1 — Initialize the Infrastructure Repository
+
+### 1.1 Objective
+
+Prepare the dedicated `epims-infrastructure` Git repository for managing the containerized deployment and operational infrastructure of the Enterprise Pharmacy Information Management System (EPIMS).
+
+This repository will hold infrastructure definitions and deployment-related resources. Application source code will remain in its respective repositories.
+
+### 1.2 Repository Details
+
+| Property | Value |
+|---|---|
+| Repository name | `epims-infrastructure` |
+| GitHub owner | `JoshuaPraveen99` |
+| Visibility | Private |
+| Local workspace | `C:\Users\swoni\Documents\epims\epims-infrastructure` |
+| Primary purpose | Container infrastructure and deployment orchestration |
+| Source control | Git and GitHub |
+
+### 1.3 Repository Responsibilities
+
+The infrastructure repository will progressively manage:
+
+- Docker Compose service definitions.
+- Container networks and service dependencies.
+- Persistent storage definitions for stateful services.
+- Container health checks and startup dependencies.
+- Non-sensitive infrastructure configuration.
+- OpenBao deployment configuration and policies, when implemented.
+- Setup, health-check, and backup scripts.
+- Deployment and troubleshooting documentation.
+
+The repository will not replace the application repositories or the centralized application configuration repository.
+
+### 1.4 Separation of Responsibilities
+
+| Repository or component | Responsibility |
+|---|---|
+| `epims-eps-core` | EPS pharmacy backend application |
+| `epims-config-server` | Spring Cloud Config Server application |
+| `epims-config` | Version-controlled, non-sensitive application configuration and placeholders |
+| `epims-infrastructure` | Container definitions, networks, volumes, and deployment orchestration |
+| OpenBao | Planned secret storage and access policies |
+| Secret Management API | Planned authenticated API for authorized secret updates |
+
+### 1.5 Verify the Local Workspace
+
+Open PowerShell and run:
+
+```powershell
+Set-Location "C:\Users\swoni\Documents\epims"
+
+Get-Location
+Get-ChildItem -Directory
+Test-Path ".\epims-infrastructure"
+```
+
+If the local directory already exists, inspect it before proceeding. Do not overwrite existing files or initialize a nested Git repository.
+
+### 1.6 Verify the GitHub Repository
+
+Open:
+
+https://github.com/JoshuaPraveen99/epims-infrastructure
+
+Verify that the repository exists and that the signed-in account has access. A `404` response alone does not prove that a private repository is absent.
+
+If the repository does not exist, create a private GitHub repository named `epims-infrastructure`.
+
+If the repository already exists, retain its existing branches and commit history.
+
+### 1.7 Clone the Repository
+
+If the GitHub repository exists and the local directory does not, run:
+
+```powershell
+Set-Location "C:\Users\swoni\Documents\epims"
+
+git clone https://github.com/JoshuaPraveen99/epims-infrastructure.git
+
+Set-Location ".\epims-infrastructure"
+```
+
+Verify the clone:
+
+```powershell
+Get-Location
+git remote -v
+git branch --show-current
+git status
+git rev-parse --show-toplevel
+```
+
+The repository root should be `epims-infrastructure`, and the `origin` remote should point to the intended GitHub repository.
+
+### 1.8 Security Requirements
+
+- Never commit real passwords, API tokens, private keys, or other credentials.
+- Keep `.env` files containing actual secrets out of Git.
+- Use `.env.example` for variable names and safe placeholders only.
+- Do not put the Config Server's GitHub private key in the infrastructure repository.
+- Introduce secrets through an explicitly configured secure provisioning mechanism.
+- Do not expose database or secret-management ports to the public internet by default.
+
+### 1.9 Completion Checklist
+
+- [ ] Checked whether `epims-infrastructure` exists on GitHub.
+- [ ] Checked whether the local directory already exists.
+- [ ] Created the private repository if it was absent.
+- [ ] Cloned the repository if it was not already local.
+- [ ] Verified the repository root.
+- [ ] Verified the `origin` remote.
+- [ ] Verified the current branch and working-tree status.
+- [ ] Preserved any existing files and Git history.
+- [ ] Added this documentation to `README.md`.
+
+**Status:** Pending verification.
+
+### 1.10 Next Step
+
+**Step 2 — Define the infrastructure directory structure and security baseline.**
+
+The next step will establish the initial `.gitignore`, safe `.env.example`, directory layout, and infrastructure conventions before adding Docker Compose services.
+
+## Step 2 — Create the Infrastructure Directory Structure
+
+### Objective
+
+Establish a consistent directory structure for EPIMS infrastructure configuration, container orchestration, secret management, operational scripts, and technical documentation.
+
+The structure separates deployment configuration from application source code and prepares the repository for a containerized deployment model.
+
+### 2.1 Repository Location
+
+Local repository path:
+
+`C:\Users\swoni\Documents\epims\epims-infrastructure`
+
+GitHub repository:
+
+`https://github.com/JoshuaPraveen99/epims-infrastructure`
+
+### 2.2 Directory Structure
+
+The following directories are created during this step:
+
+```text
+epims-infrastructure/
+├── README.md
+├── compose/
+│   └── services/
+├── config/
+│   └── mongodb/
+├── openbao/
+│   ├── config/
+│   └── policies/
+├── scripts/
+│   ├── setup/
+│   ├── health/
+│   └── backup/
+└── docs/
+    ├── architecture/
+    ├── operations/
+    └── troubleshooting/
+```
+
+### 2.3 Directory Responsibilities
+
+| Directory | Purpose |
+|---|---|
+| `compose/` | Container orchestration configuration |
+| `compose/services/` | Optional service-specific Compose definitions |
+| `config/` | Non-sensitive infrastructure configuration |
+| `config/mongodb/` | MongoDB configuration and initialization resources |
+| `openbao/config/` | OpenBao server configuration |
+| `openbao/policies/` | OpenBao authorization policies |
+| `scripts/setup/` | Infrastructure setup and initialization scripts |
+| `scripts/health/` | Service health checks and diagnostics |
+| `scripts/backup/` | Backup and recovery automation |
+| `docs/architecture/` | Infrastructure architecture documentation |
+| `docs/operations/` | Deployment and operational procedures |
+| `docs/troubleshooting/` | Troubleshooting guides and known issues |
+
+### 2.4 Security Baseline
+
+The following rules apply to all infrastructure files:
+
+1. Actual credentials, access tokens, private keys, and secret values must never be committed to Git.
+2. Real environment files must be excluded from version control.
+3. Example environment files may contain variable names and safe placeholders only.
+4. OpenBao policies must define permissions without embedding secret values.
+5. Database and secret-management services must not be publicly exposed by default.
+6. TLS certificate verification must remain enabled in secure deployments.
+7. Logs and diagnostic output must not disclose secret values.
+8. Production deployment settings must be reviewed separately from local development settings.
+
+These are repository security requirements. Enforcement will be added and verified as the relevant configuration and deployment files are implemented.
+
+### 2.5 Verification
+
+Run the following commands from PowerShell:
+
+```powershell
+Set-Location "C:\Users\swoni\Documents\epims\epims-infrastructure"
+
+Get-ChildItem -Directory -Recurse |
+    Select-Object FullName
+
+git status
+```
+
+Verify that all expected directories exist and that Git reports the newly created directories through their contents when files are added. Git does not track empty directories.
+
+### 2.6 Completion Checklist
+
+- [ ] Confirmed the repository location.
+- [ ] Created all required infrastructure directories.
+- [ ] Verified the directory structure.
+- [ ] Reviewed the security baseline.
+- [ ] Confirmed that no actual secrets have been added to the repository.
+
+**Step 2 status:** Pending verification.
+
+**Next step:** Step 3 — Create the Git ignore rules and safe environment-variable template before adding infrastructure configuration.
+
+## Step 3 — Configure Git Ignore Rules and Environment Templates
+
+### Objective
+
+Protect sensitive environment files and establish a documented template for infrastructure configuration.
+
+### 3.1 Create `.gitignore`
+
+The `.gitignore` file excludes local environment files, private keys, runtime data, database backups, logs, temporary files, IDE settings, and build outputs.
+
+The `.env.example` template is explicitly allowed so that variable names can be documented without publishing actual credentials.
+
+### 3.2 Create `.env.example`
+
+The environment template defines initial configuration variables for:
+
+- EPIMS environment and timezone.
+- MongoDB connection details.
+- MongoDB administrator credentials.
+- MongoDB application credentials.
+- Config Server hostname and port.
+- OpenBao hostname and port.
+- Secret Management API hostname and port.
+
+All credential values in `.env.example` must be placeholders. Replace them with actual values only in a local `.env` file or an approved secret-management mechanism.
+
+### 3.3 Security Requirements
+
+1. Never commit actual passwords, private keys, tokens, or secret values.
+2. Never use `.env.example` as a production secrets store.
+3. Do not assume `.gitignore` protects files that are already tracked.
+4. Do not print or share actual `.env` contents during troubleshooting.
+5. Do not commit OpenBao root tokens, unseal keys, runtime state, or database backups.
+6. Review changes to `.gitignore` before committing to ensure sensitive files remain excluded.
+
+### 3.4 Verification Commands
+
+Run from the repository root:
+
+```powershell
+Test-Path ".gitignore"
+Test-Path ".env.example"
+git check-ignore .env
+git status --short
+```
+
+Confirm that both files exist and `.env` is ignored by Git.
+
+### 3.5 Completion Checklist
+
+- [ ] Created or reviewed `.gitignore`.
+- [ ] Created or reviewed `.env.example`.
+- [ ] Confirmed `.env` is ignored.
+- [ ] Confirmed `.env.example` is not excluded.
+- [ ] Verified that no real credentials are present in tracked files.
+
+**Step 3 status:** Pending verification.
+
+**Next step:** Step 4 — Design the Docker Compose service layout, network boundaries, persistent volumes, and health checks before implementing the container configuration.
+
+## Step 4 — Design the Docker Compose Architecture
+
+### Objective
+
+Define the infrastructure service responsibilities, networking, persistence, and startup-readiness requirements before implementing Docker Compose configuration.
+
+### 4.1 Planned Services
+
+| Service | Responsibility |
+|---|---|
+| MongoDB | Persistent database for EPS application data |
+| Config Server | Supplies application configuration from the `epims-config` repository |
+| OpenBao | Centralized secret storage and access control |
+| Secret Management API | Authorized REST interface for managing secrets in OpenBao |
+| EPS Core | Pharmacy backend that consumes application configuration and connects to its required services |
+
+The service definitions will be implemented incrementally. The planned architecture does not mean every service is already deployed.
+
+### 4.2 Networking
+
+- Application containers should use Compose service names for internal communication.
+- MongoDB and OpenBao should remain on private container networks unless a documented operational requirement justifies additional access.
+- Host port bindings must be explicit and restricted where host access is required.
+- Production access must be reviewed separately from local development access.
+- Secrets must not be passed through URLs or written to logs.
+
+### 4.3 Persistence
+
+- MongoDB must use a named volume for database persistence.
+- OpenBao storage must be persistent and separate from MongoDB storage.
+- Database backups and OpenBao recovery material must be protected and excluded from Git.
+- Container recreation must not be treated as a backup or recovery strategy.
+
+### 4.4 Startup and Health Checks
+
+Docker Compose startup dependencies must be configured according to actual service requirements.
+
+Where a service provides a reliable health check, dependent services should use the `service_healthy` condition when appropriate. Merely starting a container does not guarantee that its application is ready to accept connections.
+
+Application-level retry and reconnection behavior must also be considered.
+
+### 4.5 Security Requirements
+
+1. Do not expose database or secret-management services publicly by default.
+2. Do not store actual credentials in Compose files.
+3. Do not disable TLS verification to work around connectivity errors.
+4. Use separate credentials and access policies for application and administrator access.
+5. Plan OpenBao initialization, storage, recovery, and access control before using it for application secrets.
+
+### 4.6 Environment Verification
+
+Run:
+
+```powershell
+docker --version
+docker compose version
+docker info
+```
+
+Confirm that Docker Engine is available and the Compose command works.
+
+### 4.7 Completion Checklist
+
+- [ ] Defined the responsibilities of the planned services.
+- [ ] Defined the initial private-networking approach.
+- [ ] Defined data-persistence requirements.
+- [ ] Documented startup-readiness and health-check requirements.
+- [ ] Verified Docker and Docker Compose availability.
+
+**Step 4 status:** Pending verification.
+
+**Next step:** Step 5 — Design the initial `compose.yaml`, beginning with MongoDB and its persistent volume, health check, and restricted host binding. Additional services will be added only after their configuration and security requirements are defined.
+
+# Step 5 — Configure MongoDB in Docker Compose
+
+## Objective
+
+Integrate the existing EPIMS MongoDB 8 container into the `epims-infrastructure` repository using Docker Compose while preserving existing database files, authentication, and host-port restrictions.
+
+This step first inspects the existing MongoDB deployment, verifies application-user authentication, identifies persistent storage, and prepares the Compose configuration. The container migration must not be considered complete until the existing database and authentication have been verified after the transition.
+
+## 5.1 Existing MongoDB Configuration
+
+The existing MongoDB deployment was identified with the following configuration:
+
+| Property | Value |
+|---|---|
+| Container name | `epims-mongodb` |
+| Docker image | `mongo:8` |
+| Database | `epims-eps` |
+| Application username | `epsAppUser` |
+| Database authentication | Enabled using `mongod --auth` |
+| Database storage volume | `epims-eps-core-data` |
+| Database storage mount | `/data/db` |
+| Auxiliary storage mount | `/data/configdb` |
+| Host binding | `127.0.0.1:27017` |
+| Restart policy | `unless-stopped` |
+| Docker network | `bridge` |
+
+The application-user authentication test returned `{ ok: 1 }`.
+
+The existing database volume must be preserved during the transition to Compose.
+
+## 5.2 Inspect Existing Containers and Volumes
+
+Open PowerShell and navigate to the infrastructure repository:
+
+```powershell
+Set-Location "C:\Users\swoni\Documents\epims\epims-infrastructure"
+```
+
+List the MongoDB container:
+
+```powershell
+docker ps -a --filter "name=epims-mongodb"
+```
+
+List available Docker volumes:
+
+```powershell
+docker volume ls
+```
+
+Inspect the image:
+
+```powershell
+docker inspect epims-mongodb --format '{{.Config.Image}}'
+```
+
+Inspect the published host ports:
+
+```powershell
+docker inspect epims-mongodb --format '{{json .HostConfig.PortBindings}}'
+```
+
+Inspect the current network:
+
+```powershell
+docker inspect epims-mongodb --format '{{json .NetworkSettings.Networks}}'
+```
+
+Inspect the startup command:
+
+```powershell
+docker inspect epims-mongodb --format '{{json .Config.Entrypoint}}'
+docker inspect epims-mongodb --format '{{json .Config.Cmd}}'
+```
+
+Inspect the restart policy:
+
+```powershell
+docker inspect epims-mongodb --format '{{json .HostConfig.RestartPolicy}}'
+```
+
+Inspect the mounted volumes:
+
+```powershell
+docker inspect epims-mongodb --format '{{json .Mounts}}'
+```
+
+Inspect the database volume:
+
+```powershell
+docker volume inspect epims-eps-core-data
+```
+
+These commands establish the existing configuration before any container replacement is attempted.
+
+## 5.3 Verify MongoDB Authentication
+
+MongoDB authentication must be verified independently of the container's running status.
+
+Execute:
+
+```powershell
+docker exec -it epims-mongodb mongosh `
+  --username epsAppUser `
+  --authenticationDatabase epims-eps `
+  --password `
+  --eval "db.runCommand({ ping: 1 })"
+```
+
+Enter the application user's password when prompted.
+
+Expected result:
+
+```javascript
+{ ok: 1 }
+```
+
+A successful result confirms that the supplied account authenticated and the MongoDB ping command succeeded.
+
+Do not place actual passwords in the README, Compose files, source code, or shared terminal output.
+
+## 5.4 Inspect Environment-Variable Names
+
+Inspect the container's environment-variable names without displaying their values:
+
+```powershell
+docker inspect epims-mongodb --format '{{range .Config.Env}}{{println .}}{{end}}' |
+    ForEach-Object {
+        ($_ -split '=', 2)[0]
+    }
+```
+
+The inspected environment contained MongoDB image/runtime variables, including `MONGO_VERSION`, `MONGO_PACKAGE`, and `MONGO_MAJOR`.
+
+No MongoDB initialization credential variables were present in the inspected container environment.
+
+This does not mean authentication is disabled. The authentication test in Section 5.3 succeeded.
+
+Existing MongoDB users are stored in the database. Do not assume that adding initialization environment variables to a replacement container will recreate or modify existing users.
+
+## 5.5 Verify Persistent Storage
+
+Inspect the existing database volume:
+
+```powershell
+docker volume inspect epims-eps-core-data
+```
+
+Inspect all container mounts:
+
+```powershell
+docker inspect epims-mongodb --format '{{json .Mounts}}'
+```
+
+The inspection identified these mounts:
+
+| Docker volume | Container destination | Purpose |
+|---|---|---|
+| `epims-eps-core-data` | `/data/db` | MongoDB database files |
+| `9962fbcb1944f0d775b92467e4f86edc3b83128f56a770da10f0211c4d78fe7f` | `/data/configdb` | Auxiliary storage mounted by the existing container |
+
+The database volume is a named Docker volume and must remain available during the Compose transition.
+
+The auxiliary volume has a Docker-generated name. The initial Compose configuration references that existing volume explicitly so that the mount can be preserved.
+
+Do not delete either volume during this step.
+
+## 5.6 Create the Compose Configuration
+
+Create a file named `compose.yaml` in the root of `epims-infrastructure`, alongside `README.md` and `.gitignore`.
+
+Use the following configuration:
+
+```yaml
+services:
+  mongodb:
+    image: mongo:8
+    container_name: epims-mongodb
+    command: ["mongod", "--auth"]
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:27017:27017"
+
+    volumes:
+      - epims-eps-core-data:/data/db
+      - mongo-configdb:/data/configdb
+
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - "if (db.adminCommand({ ping: 1 }).ok !== 1) quit(1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  epims-eps-core-data:
+    external: true
+    name: epims-eps-core-data
+
+  mongo-configdb:
+    external: true
+    name: 9962fbcb1944f0d775b92467e4f86edc3b83128f56a770da10f0211c4d78fe7f
+```
+
+### Configuration explanation
+
+**Image**
+
+```yaml
+image: mongo:8
+```
+
+Uses the MongoDB 8 image family that is already running in the existing deployment.
+
+**Startup command**
+
+```yaml
+command: ["mongod", "--auth"]
+```
+
+Preserves the existing MongoDB startup behavior with authentication enabled.
+
+**Restart policy**
+
+```yaml
+restart: unless-stopped
+```
+
+Allows Docker to restart the container after an unexpected exit, unless it has been explicitly stopped.
+
+**Host-port binding**
+
+```yaml
+ports:
+  - "127.0.0.1:27017:27017"
+```
+
+Restricts published MongoDB access to the host machine's loopback interface. It does not expose the published port on every host interface.
+
+**Database volume**
+
+```yaml
+- epims-eps-core-data:/data/db
+```
+
+Reuses the existing named database volume instead of creating a new database volume.
+
+**Auxiliary volume**
+
+```yaml
+- mongo-configdb:/data/configdb
+```
+
+Preserves the additional mount identified during container inspection.
+
+**External volumes**
+
+```yaml
+volumes:
+  epims-eps-core-data:
+    external: true
+    name: epims-eps-core-data
+```
+
+The `external: true` declaration tells Docker Compose to use an existing Docker volume. Compose will not create a replacement volume for this declaration and will report an error if the volume is missing.
+
+The auxiliary volume is also declared external and references its existing Docker-generated name.
+
+## 5.7 Understand the Health Check
+
+The Compose service uses this health-check configuration:
+
+```yaml
+healthcheck:
+  test:
+    - CMD
+    - mongosh
+    - --quiet
+    - --eval
+    - "if (db.adminCommand({ ping: 1 }).ok !== 1) quit(1)"
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 30s
+```
+
+### How it works
+
+- `CMD` executes the command directly without invoking a shell.
+- `mongosh` runs the MongoDB shell.
+- `--quiet` suppresses unnecessary shell output.
+- The JavaScript expression checks the result of the MongoDB ping command and exits with a nonzero status if the result is not successful.
+- `interval: 10s` runs the check every 10 seconds.
+- `timeout: 5s` limits how long an individual check may run.
+- `retries: 5` marks the container unhealthy after five consecutive unsuccessful checks.
+- `start_period: 30s` provides an initialization period for the service.
+
+This check is intended to verify MongoDB server responsiveness. It is not a replacement for the separate application-user authentication test. If the health check cannot execute the ping successfully under the server's authorization configuration, it must be adjusted and tested before being relied on for orchestration.
+
+## 5.8 Validate the Compose Configuration
+
+From the repository root, run:
+
+```powershell
+docker compose -f compose.yaml config --quiet
+```
+
+If no validation error is reported, Compose accepts the configuration syntax and structure.
+
+Inspect the resolved configuration:
+
+```powershell
+docker compose -f compose.yaml config
+```
+
+Verify that:
+
+- The service is named `mongodb`.
+- The image is `mongo:8`.
+- The command is `mongod --auth`.
+- The host-port binding is `127.0.0.1:27017:27017`.
+- The health check matches Section 5.7.
+- Both volume declarations use `external: true`.
+- The external volume names match the existing Docker volumes.
+
+Configuration validation does not start the service and does not prove that MongoDB authentication or the health check works.
+
+**Do not run `docker compose up` yet.** The existing container already uses the name `epims-mongodb` and host port `27017`. The replacement procedure must account for these conflicts.
+
+## 5.9 Migration Safety Requirements
+
+Before transitioning the existing container to Compose:
+
+1. Confirm that the database volume exists.
+2. Ensure that the existing container's database volume is preserved.
+3. Confirm that the auxiliary mount is accounted for.
+4. Prepare a backup and recovery plan appropriate for the database.
+5. Plan for the existing container name and host-port conflicts.
+6. Stop the existing container only when the replacement procedure is ready.
+7. Do not remove the existing database volume.
+8. After the transition, verify the container status, health check, application-user authentication, and existing database contents.
+
+The transition must be treated as a controlled migration, not as an ordinary container restart.
+
+## 5.10 Security Requirements
+
+- Never commit actual passwords, access tokens, private keys, or secret values.
+- Do not add MongoDB passwords directly to `compose.yaml`.
+- Keep real environment files excluded from Git.
+- Do not publish MongoDB on all host interfaces by default.
+- Do not delete persistent volumes as a troubleshooting shortcut.
+- Do not assume container health proves that application authentication succeeds.
+- Do not use a container recreation as a substitute for backup and recovery.
+- Verify the configuration after every significant migration change.
+
+## 5.11 Verification Checklist
+
+- [x] Identified the existing MongoDB container.
+- [x] Confirmed the MongoDB 8 image.
+- [x] Confirmed that authentication is enabled.
+- [x] Verified application-user authentication and MongoDB ping.
+- [x] Identified the existing database volume.
+- [x] Identified the auxiliary `/data/configdb` volume.
+- [x] Confirmed the host-port binding.
+- [x] Identified the existing startup command and restart policy.
+- [ ] Created `compose.yaml`.
+- [ ] Validated the Compose configuration.
+- [ ] Tested the health check.
+- [ ] Completed the controlled transition to Compose.
+- [ ] Verified authentication and existing database contents after the transition.
+
+**Step 5 status:** Existing deployment inspected and authentication verified. Compose configuration and migration remain pending until their corresponding checks succeed.
+
+**Next step:** Validate `compose.yaml`, then execute the controlled migration from the standalone MongoDB container to the Compose-managed service.
+
+### 5.15 Final Migration Results
+
+The existing MongoDB deployment was transitioned from a standalone Docker container to a Docker Compose-managed service.
+
+| Verification | Result |
+|---|---|
+| MongoDB image | `mongo:8` |
+| Compose service | `mongodb` |
+| Container name | `epims-mongodb` |
+| Container status | Running and healthy |
+| Host port | `127.0.0.1:27017` |
+| Database volume | `epims-eps-core-data` |
+| Auxiliary volume | Existing `/data/configdb` volume |
+| Application authentication | Successful |
+| Application database | `epims-eps` |
+| Accessible collection | `orders` |
+
+### 5.16 Application Role Correction
+
+The initial `epsAppUser` role was assigned to `epims_eps`, while the application database is named `epims-eps`.
+
+The correct role was granted on the intended database:
+
+```javascript
+{ role: "readWrite", db: "epims-eps" }
+```
+
+After the correction, the application account successfully listed the `orders` collection.
+
+The original, incorrect role on `epims_eps` may remain assigned. Remove it only after confirming that no application or workflow depends on that database.
+
+### 5.17 Final Completion Checklist
+
+- [x] Inspected the existing MongoDB container.
+- [x] Identified and preserved the existing database volume.
+- [x] Identified the auxiliary storage volume.
+- [x] Confirmed MongoDB authentication.
+- [x] Created and validated `compose.yaml`.
+- [x] Started MongoDB using Docker Compose.
+- [x] Confirmed that the container is healthy.
+- [x] Confirmed application-user access to `epims-eps`.
+- [x] Confirmed access to the existing `orders` collection.
+- [ ] Remove the stopped standalone container after the transition is accepted and rollback is no longer needed.
+
+**Step 5 status:** Complete — MongoDB is running under Docker Compose and application-level collection access is verified.
+
+**Next step:** Step 6 — Integrate the EPIMS Config Server into the infrastructure deployment, including its container build, configuration repository access, environment variables, and health checks.
+
+## Step 6 — Integrate the EPIMS Config Server
+
+### Objective
+
+Prepare the existing `epims-config-server` Spring Boot application for containerized deployment through the `epims-infrastructure` repository.
+
+The Config Server retrieves non-secret configuration from the private `epims-config` Git repository. It must not embed private SSH keys, Git credentials, or application passwords in its source code, Docker image, or committed configuration.
+
+### 6.1 Inspect the Existing Config Server
+
+Local project path:
+
+`C:\Users\swoni\Documents\epims\epims-config-server`
+
+GitHub repository:
+
+`https://github.com/JoshuaPraveen99/epims-config-server`
+
+The existing project uses Java 25, Spring Boot 4.0.9, and Spring Cloud Config Server. These versions must be preserved unless a compatibility issue is identified and explicitly addressed.
+
+### 6.2 Verify the Project Files
+
+Run:
+
+```powershell
+Set-Location "C:\Users\swoni\Documents\epims\epims-config-server"
+
+Get-ChildItem -Force
+
+Test-Path ".\Dockerfile"
+Test-Path ".\build.gradle.kts"
+Test-Path ".\src\main\resources\application.yml"
+```
+
+### 6.3 Review the Build Configuration
+
+Run:
+
+```powershell
+Get-Content ".\build.gradle.kts"
+```
+
+Confirm that the existing Java toolchain, Spring Boot plugin, Spring Cloud dependencies, and test configuration are preserved.
+
+### 6.4 Review the Application Configuration
+
+Run:
+
+```powershell
+Get-Content ".\src\main\resources\application.yml"
+```
+
+Confirm that the configuration references the private Git repository and uses an environment-provided private key rather than a committed credential.
+
+Never include the contents of private keys or actual secret values in this documentation.
+
+### 6.5 Verify Repository State
+
+Run:
+
+```powershell
+git status
+git remote -v
+```
+
+Confirm that the working directory belongs to the expected Config Server repository.
+
+### 6.6 Security Requirements
+
+1. Do not commit private SSH keys or Git credentials.
+2. Do not copy private keys into the Docker image.
+3. Keep private configuration-repository access separate from application runtime secrets.
+4. Preserve the existing Git host-key verification configuration.
+5. Do not expose the Config Server publicly by default.
+6. Use Docker service DNS for communication between containers.
+7. Validate the container build before integrating the service into the main Compose deployment.
+
+### 6.7 Completion Checklist
+
+- [ ] Confirmed the Config Server repository location.
+- [ ] Inspected the existing Dockerfile status.
+- [ ] Reviewed `build.gradle.kts`.
+- [ ] Reviewed `application.yml`.
+- [ ] Verified Git repository state.
+- [ ] Confirmed that no private key or credential will be committed.
+
+**Step 6 status:** Pending inspection.
+
+**Next step:** Create or refine the Config Server Dockerfile and design secure runtime delivery of its private Git SSH key.
+
+
+### 6.2 Make Config Server Configuration Container-Independent
+
+The Config Server must not depend on a developer's home directory or workstation-specific SSH configuration.
+
+The previous configuration referenced:
+
+```yaml
+known-hosts-file: ${user.home}/.ssh/known_hosts
+```
+
+This path depends on the runtime user's home directory and may not exist inside the container.
+
+The container configuration now uses a fixed path:
+
+```yaml
+known-hosts-file: /run/secrets/known_hosts
+```
+
+The private key will be supplied through a runtime-mounted secret file. Spring Boot configuration-tree import is enabled using:
+
+```yaml
+spring:
+  config:
+    import: "optional:configtree:/run/secrets/"
+```
+
+The private-key secret file must be mounted using this filename:
+
+`/run/secrets/spring.cloud.config.server.git.private-key`
+
+Spring Boot maps the filename to the property:
+
+`spring.cloud.config.server.git.private-key`
+
+The Git backend continues to use the private repository:
+
+`git@github.com:JoshuaPraveen99/epims-config.git`
+
+The following security settings remain enabled:
+
+```yaml
+ignore-local-ssh-settings: true
+strict-host-key-checking: true
+```
+
+### 6.3 Secret Delivery Requirements
+
+1. Do not copy the private SSH key into the Docker image.
+2. Do not commit private keys or actual credentials to Git.
+3. Mount the private key only into the Config Server container.
+4. Mount a verified GitHub host-key file at `/run/secrets/known_hosts`.
+5. Keep strict SSH host-key verification enabled.
+6. Use environment-specific secret delivery without changing the application configuration.
+7. Use the planned secret-management integration for production deployments rather than relying on a developer's profile directory.
+
+### 6.4 Completion Checklist
+
+- [x] Identified the workstation-dependent `user.home` reference.
+- [x] Selected a fixed container path for SSH host-key verification.
+- [x] Selected Spring Boot configuration-tree import for private-key delivery.
+- [ ] Created the Config Server Dockerfile.
+- [ ] Added the Config Server service and secret mounts to Compose.
+- [ ] Verified private repository access from the container.
+- [ ] Verified the Config Server health endpoint.
+
+**Step 6 status:** Container-independent configuration designed; container build and runtime verification remain pending.
+
+**Next step:** Create the Config Server Dockerfile and add the service to `compose.yaml`.
