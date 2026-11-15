@@ -1,242 +1,3 @@
-# EPIMS Pharmacy — Authoritative Rebuild and Implementation Guide
-
-> **Document authority:** This README is the single operational and technical reference for rebuilding the EPIMS repositories and the verified local infrastructure from a clean machine. It combines the supplied implementation README with the final decisions and verified outcomes recorded through **15 November 2026**.
->
-> **How to read status:** `[VERIFIED]` means the action was performed and evidence was observed. `[CONFIGURED]` means the file/configuration was created but the full runtime behavior is not yet verified. `[PLANNED]` means a design decision only. `[PENDING]` means the next implementation or verification action remains. Never treat a planned architecture box as a deployed service.
->
-> **Important:** This document distinguishes the clean-room rebuild path from historical implementation notes. Follow the **Canonical decisions**, **Current rebuild order**, and latest implementation sections first. If an older chronological note conflicts with a canonical decision, the canonical decision wins. Historical notes are retained only to explain how the current state was reached; they are not alternate instructions.
-
-## 0. Canonical decisions and current system state
-
-### 0.1 Final repository boundaries
-
-| Repository | Final responsibility | Current state |
-|---|---|---|
-| `epims-eps-core` | EPS pharmacy backend application | GitHub repository created and pushed; application development ongoing |
-| `epims-config` | Centralized non-secret application configuration; placeholders only | Private GitHub repository created; Config Server read-only deploy-key access verified |
-| `epims-config-server` | Spring Cloud Config Server application, Gradle build and its Dockerfile | Source/build configured; executable artifact published; container runtime still pending |
-| `epims-infrastructure` | Docker Compose, infrastructure configuration, scripts, local runtime secrets and deployment operations | Repository created; MongoDB and Reposilite Compose services configured; publishing script verified |
-
-Keep one Git repository per application or infrastructure responsibility. Do not turn this into a monorepo unless a later architecture decision explicitly changes it.
-
-### 0.2 Final technology and infrastructure decisions
-
-| Area | Final decision | Status / qualification |
-|---|---|---|
-| Developer OS | Windows 11 / PowerShell 5.1 | Current workstation |
-| IDE | IntelliJ IDEA | Current development IDE |
-| Java for current Config Server | Java 25 toolchain | Configured in `epims-config-server` |
-| Config Server framework | Spring Boot 4.0.9 | Configured |
-| Spring Cloud train | 2025.1.4 | Configured |
-| Build | Gradle Kotlin DSL + Gradle Wrapper | Configured |
-| Source control | Git + private GitHub repositories | In use |
-| Local containers | Docker Desktop + Docker Compose | In use |
-| EPS database currently configured | MongoDB Community `mongo:8` | Local Compose service and application access verified; MongoDB licensing is SSPL, not OSI-approved open source |
-| Maven/Gradle artifact repository | Reposilite `3.6.7` | Local container and Config Server release artifact verified |
-| Container image registry | Harbor | Final planned choice; not deployed |
-| Secrets platform | OpenBao | Final planned choice; not deployed |
-| Initial cloud target | OCI Compute VM, Ubuntu Server LTS ARM64 | Planned; OCI account/VM not provisioned |
-| Initial cloud orchestration | Docker Engine + Compose | Planned; Kubernetes deliberately deferred |
-| IaC / configuration management | OpenTofu + Ansible | Planned |
-| CI/CD | Jenkins | Planned |
-| Observability | Prometheus, Grafana, Micrometer and OpenTelemetry/Jaeger | Planned/incremental |
-| Messaging/cache | Kafka and Valkey | Planned; introduce when required by implemented workflows |
-| Edge/reverse proxy | Nginx | Planned |
-| Secret API | Authenticated API over OpenBao | Planned; do not assume it exists |
-| Kubernetes | Not part of initial deployment | Reconsider only when scale/operational needs justify it |
-
-**Licensing distinction:** “Free to use” does not mean “open source.” MongoDB Community Server is licensed under SSPL, which is not an OSI-approved open-source license. Do not describe the entire EPIMS stack as OSI-open-source while MongoDB remains selected. A PostgreSQL evaluation remains a future architecture decision; do not silently replace MongoDB in this rebuild guide.
-
-### 0.3 Artifact and image registry separation
-
-These are different services with different responsibilities:
-
-- **Reposilite** stores Java/Maven artifacts such as executable JARs and POM metadata.
-- **Harbor** is the selected future registry for OCI/Docker container images.
-- Reposilite does not host the Config Server Docker image in the current design.
-- Harbor is not yet deployed. Do not write Harbor push/pull commands as completed steps.
-
-### 0.4 Current Config Server build coordinates
-
-| Property | Current value |
-|---|---|
-| Gradle group | `com.epims.pharmacy` |
-| Artifact ID | `epims-config-server` |
-| Published version | `1.0.1` |
-| Maven coordinate | `com.epims.pharmacy:epims-config-server:1.0.1` |
-| Repository | Reposilite `releases` |
-| Observed JAR | `epims-config-server-1.0.1.jar` (43.1 MB shown in UI) |
-| Observed POM | `epims-config-server-1.0.1.pom` (1 KB shown in UI) |
-| Publication result | `[VERIFIED]` Gradle build successful and both files visible in Reposilite |
-
-The Config Server JAR is an executable application artifact. It is intended to be launched/deployed as an application, not added as a normal implementation dependency of EPS Core.
-
-### 0.5 Local workspace
-
-The latest active workspace path used for the infrastructure work is:
-
-```text
-C:\Users\Joshua\Desktop\epims\
-├── epims-eps-core\
-├── epims-config\
-├── epims-config-server\
-└── epims-infrastructure\
-```
-
-Earlier notes may contain a different Windows profile path. Treat the path above as the latest recorded workspace, but use your actual clone location if it differs. The scripts in this guide derive sibling repository paths from the infrastructure repository location where stated.
-
-### 0.6 Architecture overview
-
-The architecture below distinguishes implemented local components from future services. Solid green nodes are verified local components; amber nodes are planned or not yet runtime-verified.
-
-```mermaid
-flowchart TB
-    subgraph SCM["Source control — GitHub"]
-      EPS["epims-eps-core"]
-      CFG["epims-config<br/>non-secret YAML + placeholders"]
-      CS["epims-config-server"]
-      INF["epims-infrastructure"]
-    end
-
-    subgraph LOCAL["Local development — Windows + Docker Desktop"]
-      DB["MongoDB 8<br/>epims-mongodb"]
-      REPO["Reposilite 3.6.7<br/>Maven artifacts"]
-      APP["Config Server artifact 1.0.1<br/>container runtime pending"]
-      EPSRUN["EPS Core runtime<br/>integration pending"]
-    end
-
-    subgraph FUTURE["Planned cloud / platform services"]
-      HARBOR["Harbor<br/>container images"]
-      BAO["OpenBao<br/>secrets"]
-      OCI["OCI Compute VM<br/>Ubuntu ARM64 + Compose"]
-      CI["Jenkins + OpenTofu + Ansible"]
-      OBS["Prometheus + Grafana + OpenTelemetry"]
-      MSG["Kafka + Valkey"]
-    end
-
-    CS --> APP
-    CFG --> APP
-    APP --> EPSRUN
-    EPSRUN --> DB
-    INF --> DB
-    INF --> REPO
-    CS --> REPO
-    CI -. future deployment .-> OCI
-    OCI -. future image pulls .-> HARBOR
-    BAO -. future secret delivery .-> APP
-    OBS -. future monitoring .-> OCI
-    MSG -. future event/cache .-> EPSRUN
-
-    classDef verified fill:#E8F5E9,stroke:#81A88A,color:#174D2A
-    classDef configured fill:#EAF2FF,stroke:#7895C5,color:#17365D
-    classDef planned fill:#FFF4E5,stroke:#C89B55,color:#69410A
-    class REPO,DB verified
-    class EPS,CFG,CS,INF configured
-    class APP,EPSRUN,HARBOR,BAO,OCI,CI,OBS,MSG planned
-```
-
-**Interpretation:** The Config Server JAR has been published, but its container deployment and its live Config Server endpoint have not been verified in this latest infrastructure sequence. The diagram must not be interpreted as proof that every arrow is operational.
-
-### 0.7 Pharmacy business workflow (target)
-
-**Takeaway / pickup**
-
-```mermaid
-flowchart LR
-  A["Order Entry"] --> B["Data Entry"] --> C["Third-party adjudication"]
-  C --> D["Drug Utilization Review"]
-  D --> E["Exception handling"]
-  E --> F["Data verification"]
-  F --> G["Fill"]
-  G --> H["Product verification"]
-  H --> I["POS"]
-```
-
-**Mail order**
-
-```mermaid
-flowchart LR
-  A["Order Entry"] --> B["Data Entry"] --> C["Third-party adjudication"]
-  C --> D["Drug Utilization Review"]
-  D --> E["Exception handling"]
-  E --> F["Data verification"]
-  F --> G["SBMO"] --> H["PSB"] --> I["DOMS"] --> J["PCS"]
-  J --> K["Pack, fulfill and ship"]
-```
-
-These are target business workflows, not claims that all pharmacy subsystems have been implemented. Planned integrations include EPR (patient information), FDB (drug data/names), and CMS (prescriber information). Keep patient/clinical data out of documentation, screenshots, sample secrets, and test fixtures unless synthetic data is used.
-
-### 0.8 Current implementation status — authoritative register
-
-| Component / milestone | Status | What is actually established |
-|---|---|---|
-| Four Git repositories | `[VERIFIED]` | Repositories and responsibilities recorded; EPS Core pushed |
-| Config repository SSH access | `[VERIFIED]` | Read-only GitHub Deploy Key, SSH host verification, and `git ls-remote` tested from Windows |
-| Config Server source/build | `[CONFIGURED]` | Java 25, Spring Boot 4.0.9, Spring Cloud 2025.1.4; Gradle build and publication task available |
-| MongoDB | `[VERIFIED]` | Compose service healthy; application user can access `orders` in `epims-eps` |
-| Reposilite hosting | `[VERIFIED]` | `ghcr.io/dzikoysk/reposilite:3.6.7`, local UI, persistent volume, repositories and tokens observed |
-| Config Server artifact publication | `[VERIFIED]` | Version `1.0.1` JAR and POM visible in `releases` |
-| Config Server Dockerfile/container | `[PENDING]` | Dockerfile save status and Compose integration not confirmed |
-| Config Server container secrets | `[PENDING]` | Host secret files prepared; mount and in-container access not verified |
-| Config Server container Git clone | `[PENDING]` | Host-side Git access verified; container-side JGit SSH clone not verified |
-| EPS Core Config Client integration | `[CONFIGURED / PENDING TEST]` | Config import recorded; end-to-end runtime not yet established |
-| Harbor | `[PLANNED]` | Not deployed |
-| OpenBao | `[PLANNED]` | Not deployed |
-| OCI VM | `[PLANNED]` | Not provisioned |
-| Jenkins / OpenTofu / Ansible | `[PLANNED]` | Not implemented |
-| Backup/restore runbooks | `[PENDING]` | No clean-room restore test recorded |
-
-### 0.9 Rebuild order
-
-Use this order when rebuilding on a clean workstation:
-
-1. Install and verify Git, Java 25, Docker Desktop, PowerShell 5.1, and IntelliJ IDEA.
-2. Clone the four Git repositories into one workspace folder.
-3. Rebuild EPS Core Gradle structure and application configuration using the EPS Core sections below.
-4. Rebuild `epims-infrastructure` directory, `.gitignore`, `.env.example`, and local `.env`.
-5. Inspect existing Docker volumes before starting stateful services. If this is a genuinely new environment, initialize MongoDB; if restoring an existing environment, restore its backup rather than creating an empty database.
-6. Start MongoDB through Compose and verify health, authentication, database name, role and collection access.
-7. Pull and start Reposilite 3.6.7 through Compose; verify persistent storage and perform first-run repository/token setup only for a new empty instance.
-8. Clone/configure `epims-config`; prepare the dedicated read-only GitHub Deploy Key and verified `known_hosts`.
-9. Build the Config Server and publish a versioned JAR to Reposilite using the script documented later.
-10. Complete the Config Server Dockerfile, Compose service, secret mounts, in-container SSH test, health endpoint and configuration endpoint. These remain pending.
-11. Configure EPS Core as a Config Client and verify end-to-end startup only after Config Server and secret resolution are operational.
-12. Later: provision OCI Compute, deploy Docker/Compose, move repository access to HTTPS, establish OpenBao, Harbor, Jenkins, IaC, backups and monitoring.
-
-### 0.10 Safety rules for a rebuild
-
-- Never run `docker compose down -v` on a stack containing data you need.
-- Never delete MongoDB or Reposilite named volumes as a cleanup shortcut.
-- Never commit `.env`, token secrets, SSH private keys, passphrases, database passwords, or production patient data.
-- A `.gitignore` rule does not untrack a file already committed.
-- Do not use the Reposilite administrator token for Gradle publishing.
-- Do not expose MongoDB publicly.
-- Do not use plain HTTP for a remote/cloud artifact repository; local loopback HTTP is the current development-only configuration.
-- Do not treat a successful artifact publication as proof of application container deployment.
-- Do not treat Config Server retrieval of `${PLACEHOLDER}` strings as proof that secret values were resolved.
-- Do not infer that a container is healthy merely because it is running; check its health and application endpoint.
-- Do not change Java, Spring Boot, Spring Cloud, MongoDB, or image versions without updating this matrix and validating compatibility.
-
----
-
-## 0.11 Superseded choices and historical notes
-
-The following are not current decisions:
-
-- Reposilite is the selected Maven repository; earlier ideas about other Maven artifact repository products are superseded.
-- Harbor is the selected future container-image registry; Reposilite is not the Docker image registry.
-- OpenBao is the selected future secrets platform; it is not yet deployed.
-- OCI Compute + Ubuntu ARM64 + Docker Compose is the intended first cloud deployment; Kubernetes is deferred.
-- Java 25 / Spring Boot 4.0.9 / Spring Cloud 2025.1.4 are the latest recorded Config Server build choices. Older Java 8, 17, or 21 references in the development log are historical and must not be used to build the current Config Server without an explicit compatibility decision.
-- MongoDB 8 remains the current EPS database configuration in this implementation record. The licensing qualification is stated in Section 0.2.
-
----
-
-
-# Historical implementation record — retained from the supplied README
-
-> The following sections preserve the detailed commands, code, explanations, and troubleshooting from the original README. They record the implementation sequence as it happened. Use the canonical decisions and status register above whenever an older value or proposed component differs from the final architecture.
-
 # EPIMS Pharmacy System — EPS Core, Central Configuration and Infrastructure Setup
 
 ## System Architecture at a Glance
@@ -2480,7 +2241,7 @@ Get-Content .\epims-eps-core.yml
 ### Commands
 
 ```powershell
-cd C:\Users\swoni\Documents\epims
+cd C:\Users\Joshua\Desktop\epims
 
 git clone https://github.com/JoshuaPraveen99/epims-config-server.git
 
@@ -3471,7 +3232,7 @@ Remove-Item Env:\GIT_SSH_COMMAND
 
 ```powershell
 $env:CONFIG_GIT_PRIVATE_KEY = Get-Content "$HOME\.ssh\epims-config-server-rsa" -Raw
-Set-Location "C:\Users\swoni\Documents\epims\epims-config-server"
+Set-Location "C:\Users\Joshua\Desktop\epims\epims-config-server"
 .\gradlew.bat bootRun
 ```
 
@@ -3592,7 +3353,7 @@ This repository will hold infrastructure definitions and deployment-related reso
 | Repository name | `epims-infrastructure` |
 | GitHub owner | `JoshuaPraveen99` |
 | Visibility | Private |
-| Local workspace | `C:\Users\swoni\Documents\epims\epims-infrastructure` |
+| Local workspace | `C:\Users\Joshua\Desktop\epims\epims-infrastructure` |
 | Primary purpose | Container infrastructure and deployment orchestration |
 | Source control | Git and GitHub |
 
@@ -3627,7 +3388,7 @@ The repository will not replace the application repositories or the centralized 
 Open PowerShell and run:
 
 ```powershell
-Set-Location "C:\Users\swoni\Documents\epims"
+Set-Location "C:\Users\Joshua\Desktop\epims"
 
 Get-Location
 Get-ChildItem -Directory
@@ -3653,7 +3414,7 @@ If the repository already exists, retain its existing branches and commit histor
 If the GitHub repository exists and the local directory does not, run:
 
 ```powershell
-Set-Location "C:\Users\swoni\Documents\epims"
+Set-Location "C:\Users\Joshua\Desktop\epims"
 
 git clone https://github.com/JoshuaPraveen99/epims-infrastructure.git
 
@@ -3713,7 +3474,7 @@ The structure separates deployment configuration from application source code an
 
 Local repository path:
 
-`C:\Users\swoni\Documents\epims\epims-infrastructure`
+`C:\Users\Joshua\Desktop\epims\epims-infrastructure`
 
 GitHub repository:
 
@@ -3780,7 +3541,7 @@ These are repository security requirements. Enforcement will be added and verifi
 Run the following commands from PowerShell:
 
 ```powershell
-Set-Location "C:\Users\swoni\Documents\epims\epims-infrastructure"
+Set-Location "C:\Users\Joshua\Desktop\epims\epims-infrastructure"
 
 Get-ChildItem -Directory -Recurse |
     Select-Object FullName
@@ -3970,7 +3731,7 @@ The existing database volume must be preserved during the transition to Compose.
 Open PowerShell and navigate to the infrastructure repository:
 
 ```powershell
-Set-Location "C:\Users\swoni\Documents\epims\epims-infrastructure"
+Set-Location "C:\Users\Joshua\Desktop\epims\epims-infrastructure"
 ```
 
 List the MongoDB container:
@@ -4380,10 +4141,10 @@ The EPIMS repositories have separate responsibilities:
 |---|---|
 | `epims-eps-core` | EPS application backend |
 | `epims-config` | Centralized application configuration; placeholders only, no real secrets |
-| `epims-config-server` | Spring Cloud Config Server application and its Dockerfile |
-| `epims-infrastructure` | Docker Compose orchestration, deployment configuration, and local runtime secret directory |
+| `epims-config-server` | Spring Cloud Config Server source, Gradle build, tests, and publishing its versioned executable JAR/POM to Reposilite |
+| `epims-infrastructure` | Artifact retrieval, runtime-only Dockerfiles, image builds, image publishing, Docker Compose orchestration, deployment configuration, and runtime secret provisioning |
 
-Docker Compose belongs in `epims-infrastructure`. The Config Server Dockerfile belongs beside the Config Server source in `epims-config-server`.
+Docker Compose and deployment Dockerfiles belong in `epims-infrastructure`. The application repository builds and publishes the executable JAR; the infrastructure repository retrieves that exact version and packages it into a runtime-only container image. The infrastructure Dockerfile must not copy application source code or compile the application.
 
 ### 6.2 Current Windows workspace
 
@@ -4898,21 +4659,17 @@ Completed:
 - [x] Verified Git ignores the private key, host-key file, and passphrase file.
 - [x] Created the five-character passphrase file without displaying its contents.
 
-Not yet completed:
+Not yet completed at the time this section was first written:
 
-- [ ] Confirm whether the proposed Config Server Dockerfile has been created and saved.
-- [ ] Add a Config Server service to the existing `epims-infrastructure/compose.yaml` while preserving MongoDB and its external volumes.
+- [ ] Build and start the Config Server container from the infrastructure-owned runtime image.
 - [ ] Configure Docker secret mounts for the private key, passphrase, and `known_hosts`.
-- [ ] Verify that the container can read the secret files.
-- [ ] Build and start the Config Server container.
-- [ ] Verify that JGit/Apache MINA SSHD can decrypt the existing ED25519 key and clone `epims-config`.
+- [ ] Verify the container can read the secret files.
+- [ ] Verify JGit/Apache MINA SSHD can decrypt the existing ED25519 key and clone `epims-config`.
 - [ ] Verify Config Server health and the configuration endpoint.
 - [ ] Verify that no secret files are tracked by Git.
-- [ ] Document and test the equivalent Oracle Cloud secret provisioning.
+- [ ] Document and test equivalent OCI secret provisioning.
 
-**Step 6 status:** SSH setup, host-side Git access, container-independent application configuration, and local secret preparation are complete. Container build and Config Server runtime verification remain pending.
-
-**Next action:** Confirm the Config Server Dockerfile contents and save status. Then review the Docker build context and add the Config Server to the existing `compose.yaml` in a controlled change.
+**Updated status:** The Config Server application has since been built and published as version `1.0.1` to Reposilite. The infrastructure repository has since added Reposilite, CNCF Distribution, and Nginx reverse-proxy services. The artifact-to-image packaging and Config Server container deployment are the next implementation work; they are not yet claimed as complete.
 
 ---
 
@@ -4928,697 +4685,816 @@ The following editable/source and rendered diagram files are maintained with thi
 
 Keep the complete `docs/diagrams/` folder when committing or sharing this README.
 
-# 11. Reposilite — Local Docker Hosting and Maven Artifact Publishing
 
-## 11.1 Two separate operations
+# EPIMS Infrastructure — Artifact Repository, Private Container Registry and HTTPS Reverse Proxy
 
-- **Host Reposilite:** Pull and run the Reposilite Docker image as a persistent service.
-- **Publish to Reposilite:** Configure Gradle to upload application JAR/POM files to the running Maven repository.
+> **Implementation record updated:** 16 November 2026  
+> **Working directory:** `C:\Users\Joshua\Desktop\epims\epims-infrastructure`  
+> **Shell:** Windows PowerShell 5.1  
+> **Container platform:** Docker Desktop using the Linux container engine  
+>
+> This section records the infrastructure work completed after the initial Compose and Config Server planning sections. Commands and configuration are documented with their purpose and line-level explanations. Secret values are deliberately omitted.
 
-The first operation is documented in Sections 11.2–11.8. The second is documented in Sections 11.9–11.15.
+## 7 — Establish the Application Artifact Publishing Boundary
 
-## 11.2 Reposilite image and container architecture
+### 7.1 Architecture decision
 
-Pinned image:
+EPIMS uses two separate publishing systems because Java build artifacts and container images are different artifact types.
+
+| Component | Responsibility |
+|---|---|
+| Application repository (`epims-config-server`) | Owns source code, Gradle build, tests, versioning, and publishing the executable JAR and Maven POM |
+| Reposilite | Stores versioned Java/Maven artifacts |
+| Infrastructure repository (`epims-infrastructure`) | Retrieves an exact published JAR, builds a runtime-only image, tags it, and publishes it |
+| CNCF Distribution | Stores OCI/Docker container images |
+| OCI deployment VM | Pulls an exact image tag and runs it using Docker Compose |
+
+The application repository does not own the deployment Dockerfile or Compose deployment. The infrastructure repository does not compile application source code.
+
+### 7.2 Why this separation is used
+
+- **Independent application releases:** an application can publish a versioned JAR without requiring an infrastructure repository change.
+- **Reproducible deployment:** the infrastructure build consumes an exact artifact version rather than whichever source happens to be on a branch.
+- **Smaller build responsibility:** the infrastructure Docker build packages an already-built executable and does not need Gradle, source code, or a compiler.
+- **Traceability:** the application version, container image tag, and registry digest can be recorded together.
+- **Cloud parity:** local and OCI environments deploy the same image artifact; only environment-specific runtime configuration and secrets differ.
+
+### 7.3 Reposilite instance
+
+The local Reposilite service is configured in the root `compose.yaml`:
+
+| Property | Current value |
+|---|---|
+| Container | `epims-reposilite` |
+| Image | `ghcr.io/dzikoysk/reposilite:3.6.7` |
+| Container port | `8080` |
+| Host binding | `127.0.0.1:8081` to container `8080` |
+| Persistent volume | `epims-reposilite-data` mounted at `/app/data` |
+| Java memory option | `-Xmx256M` |
+
+The `127.0.0.1` host binding limits access to the local machine. It does not expose Reposilite on every host network interface.
+
+### 7.4 Repositories and publishing credentials
+
+Reposilite currently has these repositories:
+
+| Repository | Access | Purpose |
+|---|---|---|
+| `releases` | Public read | Immutable versioned release artifacts |
+| `snapshots` | Public read | Development snapshot artifacts |
+| `private` | Private | Restricted artifacts |
+
+Separate publishing tokens were created for release and snapshot publishing. The real usernames and tokens are stored in the ignored local `.env` file and must never be pasted into documentation, source control, screenshots, or chat.
+
+The local environment variable names are:
+
+- `REPOSILITE_RELEASE_USERNAME`
+- `REPOSILITE_RELEASE_TOKEN`
+- `REPOSILITE_SNAPSHOT_USERNAME`
+- `REPOSILITE_SNAPSHOT_TOKEN`
+
+The release publisher token is restricted to the `releases` route, and the snapshot publisher token is restricted to the `snapshots` route. Administrator credentials are not used by application build jobs.
+
+### 7.5 Published Config Server artifact
+
+The Config Server application successfully published:
+
+| Maven coordinate | Value |
+|---|---|
+| Group ID | `com.epims.pharmacy` |
+| Artifact ID | `epims-config-server` |
+| Version | `1.0.1` |
+| File | `epims-config-server-1.0.1.jar` |
+| POM | `epims-config-server-1.0.1.pom` |
+
+Standard Maven repository layout converts the group ID dots into directory separators:
 
 ```text
-ghcr.io/dzikoysk/reposilite:3.6.7
+com/epims/pharmacy/epims-config-server/1.0.1/
 ```
 
-The image is pulled from GitHub Container Registry. `3.6.7` pins the tested release tag; avoid `latest` for reproducibility.
+The published JAR is approximately 43,124,020 bytes. This is the application artifact, not a container image.
 
-```mermaid
-flowchart TD
-    A["Windows 11 workstation"] --> B["Docker Desktop / Docker Engine"]
-    B --> C["Docker Compose<br/>epims-infrastructure"]
-    C --> D["epims-reposilite<br/>Reposilite 3.6.7"]
-    D --> E["Container port 8080"]
-    E --> F["Host 127.0.0.1:8081"]
-    D --> G["/app/data"]
-    G --> H["epims-reposilite-data<br/>named volume"]
-    I["Gradle Publish task"] --> F
+### 7.6 Verify artifact availability using HTTP headers
 
-    classDef host fill:#EAF2FF,stroke:#7895C5,color:#17365D
-    classDef service fill:#E8F5E9,stroke:#81A88A,color:#174D2A
-    classDef storage fill:#FFF4E5,stroke:#C89B55,color:#69410A
-    class A,B,C,F,I host
-    class D,E service
-    class G,H storage
+Run from the infrastructure repository:
+
+```powershell
+curl.exe -I "http://localhost:8081/releases/com/epims/pharmacy/epims-config-server/1.0.1/epims-config-server-1.0.1.jar"
 ```
 
-## 11.3 Reposilite Compose configuration
+Line-by-line explanation:
 
-Add the following service under the **existing single** top-level `services:` key in `epims-infrastructure/compose.yaml`. Add the named volume under the **existing single** top-level `volumes:` key. Do not replace the MongoDB service or duplicate YAML top-level keys.
+- `curl.exe` invokes the Windows curl executable.
+- `-I` sends an HTTP HEAD request, retrieving response headers without downloading the JAR body.
+- `http://localhost:8081` targets the local Reposilite host binding.
+- `/releases/` selects the release repository.
+- The remaining path is the Maven group/artifact/version/file layout.
+- `1.0.1` pins the exact release rather than requesting a moving version.
+
+Verified response:
+
+```text
+HTTP/1.1 200 OK
+Content-Type: application/java-archive
+Content-Disposition: attachment; filename="epims-config-server-1.0.1.jar"
+Content-Length: 43124020
+```
+
+A `200 OK` response and `application/java-archive` content type confirm that the exact artifact is available for retrieval. This check does not yet prove that the JAR has been downloaded, packaged, or run as a container.
+
+### 7.7 Build and deployment pipeline
+
+```text
+epims-config-server repository
+    |
+    | Gradle build, tests, versioned publication
+    v
+Reposilite (JAR + POM)
+    |
+    | infrastructure retrieves exact release
+    v
+epims-infrastructure
+    |
+    | runtime-only Docker build
+    v
+CNCF Distribution Registry
+    |
+    | OCI VM pulls immutable version tag
+    v
+Docker Compose deployment on OCI
+```
+
+The infrastructure retrieval credential must have only the read permissions needed for the selected artifact repository. It must not use the Reposilite administrator token.
+
+**Step 7 status:** Config Server `1.0.1` publication and HTTP availability verification are complete. Infrastructure download, runtime image build, image push, and OCI deployment remain pending.
+
+---
+
+## 8 — Deploy the Lightweight Private OCI-Compatible Container Registry
+
+### 8.1 Why a separate image registry is needed
+
+Reposilite stores Java/Maven build artifacts. It is not a Docker/OCI image registry.
+
+The private container registry stores the packaged Config Server image and later images for EPIMS services. The OCI deployment host will pull those images by versioned tag.
+
+### 8.2 Registry selection
+
+The initial Harbor choice was rejected because its operational footprint is too heavy for the target OCI Free Tier VM.
+
+The selected registry is **CNCF Distribution**, using the Docker Registry HTTP API V2 and OCI-compatible image manifests.
+
+| Component | Selected version/image |
+|---|---|
+| Registry | `registry:3.1.2` |
+| Registry data | Named volume `epims-registry-data` |
+| Authentication | Distribution `htpasswd` authentication |
+| Registry backend port | `5000`, internal Compose network only |
+| Public-facing local endpoint | Nginx HTTPS at `localhost:5000` |
+
+Distribution is deliberately kept behind Nginx. Its backend port is not published directly to the Windows host.
+
+### 8.3 Registry authentication
+
+The registry is configured with an `htpasswd` file mounted read-only:
 
 ```yaml
-  reposilite:
-    image: ghcr.io/dzikoysk/reposilite:3.6.7
-    container_name: epims-reposilite
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:8081:8080"
-    volumes:
-      - epims-reposilite-data:/app/data
-    environment:
-      JAVA_OPTS: "-Xmx256M"
-    stdin_open: true
-    tty: true
+environment:
+  REGISTRY_AUTH: htpasswd
+  REGISTRY_AUTH_HTPASSWD_REALM: "EPIMS Private Registry"
+  REGISTRY_AUTH_HTPASSWD_PATH: /auth/htpasswd
 
-# Merge this declaration into the existing top-level volumes section.
 volumes:
-  epims-reposilite-data:
+  - registry-data:/var/lib/registry
+  - ./registry/auth/htpasswd:/auth/htpasswd:ro
 ```
 
-### Explanation of each Compose property
+Line-by-line explanation:
 
-| Property | Explanation |
-|---|---|
-| `reposilite` | Compose service name used by commands. |
-| `image` | Selects the pinned Reposilite 3.6.7 image. Docker pulls it if not present locally. |
-| `container_name` | Gives the container the stable name `epims-reposilite`. |
-| `restart: unless-stopped` | Restarts after failures/daemon restart unless an operator explicitly stopped it. |
-| `127.0.0.1:8081:8080` | Host port 8081 is bound only to loopback and forwarded to container port 8080. This is local-only, not a cloud/public ingress rule. |
-| `epims-reposilite-data:/app/data` | Persists Reposilite state and repository files outside the disposable container layer. |
-| `JAVA_OPTS: "-Xmx256M"` | Sets JVM maximum heap to 256 MB for this local configuration; production sizing must be measured. |
-| `stdin_open: true` | Keeps standard input open for interactive console use. |
-| `tty: true` | Allocates a pseudo-terminal for interactive console use. |
-| top-level `volumes` | Declares Docker-managed persistent volumes. |
+- `REGISTRY_AUTH: htpasswd` enables username/password authentication backed by an Apache-compatible htpasswd file.
+- `REGISTRY_AUTH_HTPASSWD_REALM` sets the Basic Authentication realm shown in the HTTP authentication challenge.
+- `REGISTRY_AUTH_HTPASSWD_PATH` tells Distribution where the credential file is mounted inside the container.
+- `registry-data:/var/lib/registry` persists image layers and registry metadata in a named Docker volume.
+- `./registry/auth/htpasswd:/auth/htpasswd:ro` mounts the host credential file read-only; `:ro` prevents the container from modifying it.
 
-**Data protection:** Never use `docker compose down -v` or `docker volume rm epims-reposilite-data` as ordinary cleanup. These operations can delete published artifacts and Reposilite state.
+The configured publisher username is `epims-publisher`. Its password is private and is not documented here.
 
-## 11.4 Pull, validate and start the image
+**Authorization limitation:** Distribution's basic `htpasswd` authentication is not repository-scoped role-based authorization. This account can access repositories according to the registry's global authentication model; do not describe it as a separate per-repository pull-only or push-only account. If least-privilege repository scopes are required, evaluate a token-authentication service or an authorization proxy before production.
 
-Run from PowerShell:
+### 8.4 Persistent registry storage
+
+The registry uses a named volume:
+
+```yaml
+volumes:
+  registry-data:
+    name: epims-registry-data
+```
+
+Explanation:
+
+- `registry-data` is the Compose logical volume key referenced by the registry service.
+- `name` sets the stable Docker volume name to `epims-registry-data`.
+- A named volume survives container replacement and ordinary `docker compose down` operations.
+- A named volume is not a backup. Production must have a tested backup and restore process.
+
+**Data safety:** Never use `docker compose down -v` or delete `epims-registry-data` as part of routine troubleshooting. Those actions can destroy stored images.
+
+### 8.5 Stable Distribution HTTP secret
+
+At first startup, Distribution logged:
+
+```text
+No HTTP secret provided - generated random secret.
+```
+
+A stable secret was generated using PowerShell's cryptographic random number generator and stored in the ignored local `.env` file. The secret itself is intentionally not recorded.
+
+The generation commands used:
 
 ```powershell
-Set-Location "C:\Users\Joshua\Desktop\epims\epims-infrastructure"
+$bytes = New-Object byte[] 32
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$rng.GetBytes($bytes)
+$registrySecret = [Convert]::ToBase64String($bytes)
+$rng.Dispose()
 ```
 
-`Set-Location` moves the shell to the directory containing `compose.yaml`.
+Explanation:
 
-Pull the exact image:
+- `New-Object byte[] 32` allocates 32 bytes for the secret.
+- `RandomNumberGenerator.Create()` creates a cryptographically secure random generator.
+- `GetBytes($bytes)` fills the array with cryptographically strong random bytes.
+- `ToBase64String` converts the random bytes into a printable environment-variable value.
+- `Dispose()` releases the generator resource.
 
-```powershell
-docker pull ghcr.io/dzikoysk/reposilite:3.6.7
+The generated value was appended to `.env` as `REGISTRY_HTTP_SECRET`. The `.env` file also contains Reposilite publishing credentials and is ignored by Git.
+
+The registry service references the value using Compose interpolation:
+
+```yaml
+environment:
+  REGISTRY_HTTP_SECRET: ${REGISTRY_HTTP_SECRET:?REGISTRY_HTTP_SECRET must be set}
 ```
 
-- `docker pull` downloads the image.
-- The fully qualified image reference identifies the registry, image and pinned version.
-- Pulling does not start a container.
+Explanation:
 
-Validate Compose:
+- `REGISTRY_HTTP_SECRET` is the environment variable read by Distribution.
+- `${REGISTRY_HTTP_SECRET:?...}` asks Compose to substitute the variable from the environment or `.env`.
+- The `:?` expression makes Compose fail if the variable is missing or empty.
+- This avoids silently starting with a newly generated, ephemeral secret.
+
+The registry was recreated after this configuration was added. Its logs showed normal startup and no longer contained the missing HTTP secret warning.
+
+For OCI, use a separately generated production secret provisioned through the approved deployment secret mechanism. Do not reuse the local development secret.
+
+### 8.6 Verify Compose configuration
+
+Run:
 
 ```powershell
 docker compose config --quiet
 ```
 
-This parses the Compose model and reports errors without printing the fully rendered configuration.
+Explanation:
 
-List configured services:
+- `docker compose config` parses the Compose file and resolves variable substitutions.
+- `--quiet` validates without printing the fully rendered configuration, reducing the risk of displaying interpolated secret values in the terminal.
+- Successful validation returns no output and no error.
+
+List the services:
 
 ```powershell
 docker compose config --services
 ```
 
-Expected services include:
+This prints the Compose service names and confirms that the expected services are defined.
+
+### 8.7 Registry startup verification
+
+Start only the registry and its proxy when needed:
+
+```powershell
+docker compose up -d registry registry-proxy
+```
+
+Explanation:
+
+- `up` creates or reconciles the requested services.
+- `-d` runs containers in the background.
+- `registry registry-proxy` limits the operation to these services and their required dependencies; it avoids unnecessarily restarting MongoDB and Reposilite.
+
+Inspect status:
+
+```powershell
+docker compose ps registry registry-proxy
+```
+
+Inspect recent registry logs:
+
+```powershell
+docker compose logs --tail 30 registry
+```
+
+Verified registry log messages included:
 
 ```text
-mongodb
-reposilite
+configured "htpasswd" access controller
+providing prometheus metrics on /metrics
+listening on [::]:5000
 ```
 
-Start Reposilite:
+These indicate that authentication was configured, the metrics endpoint was enabled, and Distribution was listening on its internal port.
 
-```powershell
-docker compose up -d reposilite
-```
+---
 
-- `up` creates or updates the service.
-- `-d` runs it detached in the background.
-- The service name limits this operation to Reposilite and required dependencies; it does not intentionally recreate MongoDB.
+## 9 — Configure Nginx as the Registry Reverse Proxy
 
-## 11.5 Verify container, logs, UI and storage
+### 9.1 What is a proxy?
 
-Container status:
+A proxy is an intermediary that receives a request and makes or forwards a request on behalf of another party.
 
-```powershell
-docker compose ps reposilite
-```
+### 9.2 Forward proxy versus reverse proxy
 
-Recent logs:
+**Forward proxy:**
 
-```powershell
-docker logs --tail 100 epims-reposilite
-```
+- Sits on the client side.
+- Represents or mediates requests from clients to external servers.
+- A company may use one to enforce outbound access rules, filter web traffic, or centralize internet access.
+- The destination server typically sees the proxy as the network client.
 
-`--tail 100` displays the last 100 log lines. Review output for successful startup and listening port. Do not publish logs if they contain secrets.
+**Reverse proxy:**
 
-Open the UI:
+- Sits on the server side, in front of one or more backend services.
+- Receives requests addressed to the service and forwards them to the appropriate backend.
+- Clients connect to the reverse proxy rather than directly to the backend.
+- It can centralize TLS termination, routing, access controls, request limits, and load balancing.
+
+It is called a **reverse** proxy because it performs the intermediary role from the server/backend side rather than representing clients on their outbound path.
+
+### 9.3 Nginx's role in EPIMS
+
+For the local registry:
 
 ```text
-http://localhost:8081
+Docker Desktop
+    |
+    | HTTPS to localhost:5000
+    v
+Nginx reverse proxy (host port 5000, container port 443)
+    |
+    | HTTP on the private Compose network
+    v
+Distribution registry (service name registry, port 5000)
 ```
 
-Inspect the named volume:
+Nginx:
+
+1. Receives the Docker client's HTTPS connection.
+2. Presents the registry TLS certificate.
+3. Forwards the request to `http://registry:5000`.
+4. Preserves the authentication header so Distribution can authenticate the user.
+5. Forwards request metadata such as the original host, client IP, and HTTPS scheme.
+6. Avoids publishing Distribution's backend port directly to the host.
+
+This central entry point is useful when additional internal services are added later. Production Nginx can route requests using DNS hostnames and TLS certificates.
+
+### 9.4 Why not expose Distribution directly?
+
+Keeping the backend private reduces the number of exposed endpoints and creates a single controlled entry point. Nginx can later provide:
+
+- TLS termination.
+- Hostname/path-based routing.
+- Request and upload timeouts.
+- Client body-size controls.
+- Rate limiting and access restrictions where appropriate.
+- Load balancing if multiple backend instances are introduced.
+
+A reverse proxy does not automatically make a backend secure. Backend authentication, network isolation, TLS configuration, secrets, and authorization still matter.
+
+### 9.5 Nginx configuration
+
+File:
+
+`registry/nginx/default.conf`
+
+Current local configuration:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name localhost;
+
+    ssl_certificate     /etc/nginx/certs/registry.crt;
+    ssl_certificate_key /etc/nginx/certs/registry.key;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    client_max_body_size 0;
+
+    location / {
+        proxy_pass http://registry:5000;
+
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_request_buffering off;
+        proxy_buffering off;
+
+        proxy_read_timeout 900s;
+        proxy_send_timeout 900s;
+    }
+}
+```
+
+Line-by-line explanation:
+
+- `server {` starts a virtual server configuration block.
+- `listen 443 ssl;` listens on container port 443 and enables TLS.
+- `server_name localhost;` selects this virtual server for the local hostname.
+- `ssl_certificate` points to the public certificate mounted into the Nginx container.
+- `ssl_certificate_key` points to the matching private key mounted into the container. This private key must remain outside Git.
+- `ssl_protocols TLSv1.2 TLSv1.3;` enables the modern TLS protocol versions selected for this endpoint.
+- `client_max_body_size 0;` removes Nginx's configured request-body size limit; this is needed for large image layer uploads. Access controls and storage quotas must still be considered.
+- `location / {` applies the proxy rules to all registry API paths.
+- `proxy_pass http://registry:5000;` forwards requests to the Compose service named `registry` on its internal port 5000. Compose DNS resolves the service name.
+- `proxy_http_version 1.1;` uses HTTP/1.1 for the upstream connection.
+- `proxy_set_header Host $http_host;` forwards the original Host header.
+- `proxy_set_header X-Real-IP $remote_addr;` forwards the address of the client connected to Nginx.
+- `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` preserves/extends the forwarded client address chain.
+- `proxy_set_header X-Forwarded-Proto https;` tells the backend that the original client-facing scheme was HTTPS.
+- `proxy_set_header Authorization $http_authorization;` forwards the Basic Authentication header to Distribution.
+- `proxy_request_buffering off;` streams request bodies rather than buffering the full upload before forwarding.
+- `proxy_buffering off;` disables response buffering for the proxied registry stream.
+- `proxy_read_timeout 900s;` allows a long-running upstream response before Nginx times out.
+- `proxy_send_timeout 900s;` allows a long-running upstream send operation before Nginx times out.
+- Closing braces end the location and server blocks.
+
+### 9.6 Nginx Compose service
+
+The proxy service uses the official Nginx Alpine image and mounts its configuration and certificate directory read-only:
+
+```yaml
+registry-proxy:
+  image: nginx:1.31.8-alpine3.24
+  container_name: epims-registry-proxy
+  restart: unless-stopped
+
+  ports:
+    - "127.0.0.1:5000:443"
+
+  volumes:
+    - ./registry/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    - ./registry/certs:/etc/nginx/certs:ro
+
+  depends_on:
+    - registry
+```
+
+Line-by-line explanation:
+
+- `registry-proxy` is the Compose service name.
+- `image` pins the Nginx image tag rather than using an unpinned `latest` tag.
+- `container_name` gives the container a predictable operational name.
+- `restart: unless-stopped` restarts the container after failures or Docker restarts unless an operator explicitly stopped it.
+- `127.0.0.1:5000:443` binds host loopback port 5000 to container TLS port 443. The service is not exposed on all host network interfaces.
+- The first volume mount supplies the Nginx virtual-server configuration.
+- The second volume mount supplies the certificate and private key.
+- `:ro` makes both mounts read-only inside the container.
+- `depends_on` starts the registry service before the proxy. It does not, by itself, guarantee the registry is ready to accept requests.
+
+The registry backend does not publish a host port. Nginx is the client-facing entry point.
+
+### 9.7 Nginx startup log note
+
+The official Nginx container may log that its startup script cannot modify `/etc/nginx/conf.d/default.conf` because the file is mounted read-only. In the observed run, Nginx continued, loaded the configuration, and started its worker processes.
+
+The read-only mount is intentional. Do not make the configuration writable solely to suppress this optional startup-script message unless a demonstrated functional issue requires it.
+
+### 9.8 Local certificate creation and properties
+
+A self-signed certificate was created for local development:
+
+- Certificate file: `registry/certs/registry.crt`
+- Private key file: `registry/certs/registry.key`
+- Subject: `CN=localhost`
+- Issuer: `CN=localhost`
+- Validity: 15 November 2026 through 15 November 2027
+- Subject Alternative Names:
+  - `DNS:localhost`
+  - `IP Address:127.0.0.1`
+
+The SAN is important because modern TLS clients validate the hostname/IP against Subject Alternative Names rather than relying only on the Common Name.
+
+The certificate was inspected using:
 
 ```powershell
-docker volume inspect epims-reposilite-data
+docker run --rm -v "${PWD}/registry/certs:/certs:ro" alpine/openssl x509 -in /certs/registry.crt -noout -subject -issuer -dates -ext subjectAltName
 ```
 
-Inspect the actual mount:
+Explanation:
 
-```powershell
-docker inspect epims-reposilite --format '{{json .Mounts}}'
-```
+- `docker run` starts a temporary container.
+- `--rm` removes that temporary container after the command exits.
+- `-v` mounts the local certificate directory at `/certs` inside the container.
+- `:ro` ensures the container cannot change the certificate files.
+- `alpine/openssl` provides the OpenSSL command in a small Alpine-based image.
+- `x509` asks OpenSSL to inspect an X.509 certificate.
+- `-in` selects the certificate file.
+- `-noout` suppresses the encoded certificate body.
+- `-subject`, `-issuer`, and `-dates` print identity and validity details.
+- `-ext subjectAltName` prints the DNS/IP names the certificate supports.
 
-Expected mount relationship:
+The output confirmed both `DNS:localhost` and `IP Address:127.0.0.1`.
+
+**Private-key rule:** `registry.key` is a secret. It must remain ignored by Git, must not be sent in chat, and must not be copied into Docker's client trust store.
+
+### 9.9 Windows certificate trust and Docker Desktop
+
+The first attempted certificate directory used `localhost:5000` as a Windows directory name. Windows does not support a colon in ordinary directory names, so PowerShell returned:
 
 ```text
-epims-reposilite-data -> /app/data
+The given path's format is not supported.
 ```
 
-This confirms the container's data directory is backed by a named volume.
+That path should not be created on Windows.
 
-## 11.6 First-run Reposilite administration
-
-The local UI was opened at `http://localhost:8081`. The instance displayed the Reposilite repository overview. The following repositories were observed:
-
-| Repository | Visibility | Intended use |
-|---|---|---|
-| `releases` | Public read | Versioned release artifacts |
-| `snapshots` | Public read | Development snapshot artifacts |
-| `private` | Private | Reserved; not used by current Config Server publishing |
-
-The administrator token alias `epims-admin` was created for administrative tasks. It must not be used by Gradle.
-
-Two persistent least-privilege publishing tokens were created:
-
-| Alias | Route | Permission | Used for |
-|---|---|---|---|
-| `epims-release-publisher` | `/releases` | Read + write | Release publishing |
-| `epims-snapshot-publisher` | `/snapshots` | Read + write | Snapshot publishing |
-
-Token alias is the Maven repository username; generated token secret is the password. The secret values are stored only in the local ignored `.env` file. They are intentionally not included in this README.
-
-**Fresh-instance warning:** An empty new volume will not automatically contain these repository definitions or token records. Recreate them in the Reposilite UI/console and verify routes/permissions before publishing. If restoring an existing installation, restore the backed-up Reposilite data volume instead of initializing an unrelated empty instance.
-
-## 11.7 Existing infrastructure and volume safety
-
-The existing MongoDB service must remain in the same Compose project. Its previously verified data volume is `epims-eps-core-data`; the auxiliary config volume was an existing long Docker volume name recorded in the supplied README. Do not replace those declarations with newly named empty volumes.
-
-Before changing a container with a name collision, inspect it:
+For this Docker Desktop Windows setup, the public self-signed certificate was instead imported into the current Windows user's Trusted Root Certification Authorities store:
 
 ```powershell
-docker ps -a --filter "name=epims-reposilite"
-docker inspect epims-reposilite
+certutil.exe -user -addstore Root .\registry\certs\registry.crt
 ```
 
-If replacing a standalone container with a Compose-managed container, first confirm its image and mount. Remove only the container if the existing named volume is intentionally being reused. Do not use `docker rm -v`, and do not delete the named volume.
+Explanation:
 
-## 11.8 Hosting verification record
+- `certutil.exe` is the Windows certificate management utility.
+- `-user` modifies the current user's certificate store rather than the machine-wide store.
+- `-addstore Root` adds the supplied certificate to the Trusted Root Certification Authorities store.
+- The final argument is the public certificate file. The private key is not imported.
 
-- [x] Reposilite image selected: `ghcr.io/dzikoysk/reposilite:3.6.7`.
-- [x] Container `epims-reposilite` observed.
-- [x] Host binding `127.0.0.1:8081:8080` configured.
-- [x] Persistent volume `epims-reposilite-data:/app/data` configured.
-- [x] `JAVA_OPTS=-Xmx256M` configured.
-- [x] UI opened at `http://localhost:8081`.
-- [x] `releases`, `snapshots`, and `private` repositories observed.
-- [x] Admin and separate publisher token aliases created.
-- [ ] Clean-room startup from an empty volume documented and independently retested.
-- [ ] Reposilite backup/restore procedure executed and verified.
-- [ ] Cloud HTTPS/reverse proxy/network policy configured.
+This is a trust change: Windows applications that use this user's root store may trust certificates issued by this self-signed root. It is acceptable for the controlled local development endpoint only while the private key remains protected. Remove the trust entry when the local certificate is retired.
 
-**Status:** Local Reposilite hosting and artifact storage are verified. Cloud hosting and disaster recovery are not complete.
+The user confirmed Docker login succeeded after importing the certificate and restarting Docker Desktop.
 
-## 11.9 Gradle Maven Publish configuration
+### 9.10 Certificate trust risk and removal
 
-Repository: `epims-config-server`
+The certificate is self-signed and identifies `localhost`. Trusting it does not execute code or install a program, but it does expand trust for the current Windows user.
 
-File: `build.gradle.kts`
+The primary risk is compromise of the matching private key. Anyone who obtains `registry.key` may be able to impersonate the local registry in circumstances where clients trust the certificate.
 
-The current project build uses Java 25, Spring Boot 4.0.9, dependency-management plugin 1.1.7 and Spring Cloud BOM 2025.1.4. The Maven Publish plugin is added to publish the executable Boot JAR.
+To inspect the Windows user Root store:
 
-```kotlin
-import org.gradle.api.publish.maven.MavenPublication
-
-plugins {
-    java
-    id("org.springframework.boot") version "4.0.9"
-    id("io.spring.dependency-management") version "1.1.7"
-    id("maven-publish")
-}
-
-val isSnapshotVersion = version.toString().endsWith("-SNAPSHOT")
-
-val reposiliteUsername = providers.environmentVariable(
-    if (isSnapshotVersion) "REPOSILITE_SNAPSHOT_USERNAME"
-    else "REPOSILITE_RELEASE_USERNAME"
-)
-
-val reposilitePassword = providers.environmentVariable(
-    if (isSnapshotVersion) "REPOSILITE_SNAPSHOT_TOKEN"
-    else "REPOSILITE_RELEASE_TOKEN"
-)
-
-publishing {
-    publications {
-        create<MavenPublication>("bootJava") {
-            groupId = project.group.toString()
-            artifactId = "epims-config-server"
-            version = project.version.toString()
-            artifact(tasks.named("bootJar"))
-        }
-    }
-
-    repositories {
-        maven {
-            name = "reposilite"
-            url = uri(
-                if (isSnapshotVersion)
-                    "http://localhost:8081/snapshots"
-                else
-                    "http://localhost:8081/releases"
-            )
-            isAllowInsecureProtocol = true
-            credentials {
-                username = reposiliteUsername.orNull ?: ""
-                password = reposilitePassword.orNull ?: ""
-            }
-        }
-    }
-}
+```powershell
+certutil.exe -user -store Root
 ```
 
-### Line-by-line / property explanation
+Find the `CN=localhost` certificate and note its thumbprint. To remove that exact certificate if/when it is retired:
 
-- `MavenPublication` imports the publication model used by Gradle's Maven Publish plugin.
-- `id("maven-publish")` applies the plugin and creates Maven publication tasks.
-- `isSnapshotVersion` checks whether the Gradle project version ends with `-SNAPSHOT`.
-- `providers.environmentVariable(...)` reads the selected username/token from the Gradle process environment. The values are not committed in the build file.
-- `publishing` defines what is published and to which repository.
-- `create<MavenPublication>("bootJava")` names the publication `bootJava`.
-- `groupId` defines the Maven group coordinate.
-- `artifactId` defines the artifact name.
-- `version` uses the project version, supplied at publishing time by `-PreleaseVersion`.
-- `artifact(tasks.named("bootJar"))` publishes the executable Spring Boot JAR.
-- `name = "reposilite"` names the Gradle repository; this name contributes to the generated task name.
-- `url` selects `/snapshots` or `/releases` based on the version suffix.
-- `isAllowInsecureProtocol = true` permits HTTP for this local loopback development endpoint only. It must not be used for a remote/cloud endpoint.
-- `credentials` supplies the selected alias and token secret to Gradle's Maven transport.
-- `orNull ?: ""` prevents a missing provider from failing during configuration; the publishing script performs the actual non-empty credential validation before invoking Gradle.
+```powershell
+certutil.exe -user -delstore Root "CERTIFICATE_THUMBPRINT"
+```
 
-The Gradle task name is derived from publication `bootJava` and repository `reposilite`:
+Replace the placeholder with the exact thumbprint. Do not remove unrelated certificates.
+
+### 9.11 Local versus OCI TLS
+
+The local self-signed certificate is not the production certificate.
+
+For OCI deployment:
+
+- Use a real DNS name for the registry.
+- Obtain a publicly trusted TLS certificate or use a controlled internal CA with explicit trust distribution.
+- Expose Nginx on the intended public HTTPS port (normally 443).
+- Keep Distribution's backend port private.
+- Restrict OCI ingress rules to the required ports and trusted sources.
+- Provision the production private key securely; never commit it or bake it into an image.
+- Renew certificates before expiry and monitor renewal status.
+
+---
+
+## 10 — Verify Registry HTTPS, Authentication, Push and Pull
+
+### 10.1 Verify the unauthenticated Registry API response
+
+Run:
+
+```powershell
+curl.exe --cacert .\registry\certs\registry.crt -i https://localhost:5000/v2/
+```
+
+Explanation:
+
+- `curl.exe` sends an HTTP request.
+- `--cacert` tells curl to trust the supplied certificate for this request.
+- `-i` includes response headers in the output.
+- `https://localhost:5000/v2/` calls the Docker Registry HTTP API V2 base endpoint through Nginx.
+
+Verified response:
 
 ```text
-publishBootJavaPublicationToReposiliteRepository
+HTTP/1.1 401 Unauthorized
+Www-Authenticate: Basic realm="EPIMS Private Registry"
+Docker-Distribution-Api-Version: registry/2.0
 ```
 
-The task was verified with:
+This `401 Unauthorized` is the expected result for an unauthenticated request because the registry requires Basic Authentication. It is not a TLS failure.
+
+The successful response also proves that:
+
+- TLS negotiation and certificate validation succeeded for curl.
+- Nginx received the request.
+- Nginx forwarded the request to Distribution.
+- Distribution returned its authentication challenge.
+
+### 10.2 Verify container status
 
 ```powershell
-.\gradlew.bat tasks --all |
-    Select-String "publishBootJavaPublicationToReposiliteRepository"
+docker compose ps registry registry-proxy
 ```
 
-The output identified the task as publishing Maven publication `bootJava` to Maven repository `reposilite`.
+The verified status showed both `epims-registry` and `epims-registry-proxy` as `Up`.
 
-## 11.10 Local credential file
+The registry backend showed only its internal port `5000/tcp`; Nginx published `127.0.0.1:5000->443/tcp`.
 
-The local infrastructure `.env` file contains these variable names:
+### 10.3 Docker login
 
-```dotenv
-REPOSILITE_RELEASE_USERNAME=epims-release-publisher
-REPOSILITE_RELEASE_TOKEN=<release-token-secret>
-
-REPOSILITE_SNAPSHOT_USERNAME=epims-snapshot-publisher
-REPOSILITE_SNAPSHOT_TOKEN=<snapshot-token-secret>
-```
-
-Replace placeholder values locally with the actual token secrets. Do not send token secrets in chat, add them to README, or commit `.env`.
-
-Check that `.env` is ignored:
+The user successfully ran:
 
 ```powershell
-git check-ignore -v .env
-git status --short
+docker login localhost:5000 -u epims-publisher
 ```
 
-- `git check-ignore -v` shows the ignore rule matching `.env`.
-- `git status --short` shows changed/untracked files.
-- If a secret was previously committed, `.gitignore` does not erase Git history. Remove it from tracking and rotate the exposed token.
+Docker prompted for the password. The password was entered interactively and was not recorded in this README.
 
-## 11.11 Publishing script
+Successful result:
 
-File: `epims-infrastructure/scripts/Publish-ConfigServer.ps1`
+```text
+Login Succeeded
+```
+
+Do not use `--insecure-registry` or disable TLS verification to work around certificate problems.
+
+### 10.4 Push a smoke-test image
+
+The official `hello-world:latest` image was used only to verify the registry pipeline.
+
+Pull the upstream image:
 
 ```powershell
-[CmdletBinding()]
-param(
-    [Parameter(Mandatory = $true)]
-    [string]$Version
-)
-
-# Step 1: Validate the application version.
-if ($Version -notmatch '^\d+\.\d+\.\d+(-SNAPSHOT)?$') {
-    throw "Invalid version '$Version'. Expected format: 1.0.1 or 1.0.1-SNAPSHOT."
-}
-
-# Step 2: Locate the EPIMS repositories.
-$EpimsRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$ConfigServerPath = Join-Path $EpimsRoot "epims-config-server"
-$GradleWrapper = Join-Path $ConfigServerPath "gradlew.bat"
-
-if (-not (Test-Path $GradleWrapper -PathType Leaf)) {
-    throw "Gradle wrapper not found: $GradleWrapper"
-}
-
-# Step 3: Locate the infrastructure environment file.
-$InfrastructurePath = Split-Path -Parent $PSScriptRoot
-$EnvFile = Join-Path $InfrastructurePath ".env"
-
-if (-not (Test-Path $EnvFile -PathType Leaf)) {
-    throw "Environment file not found: $EnvFile"
-}
-
-# Step 4: Read environment variables from the .env file.
-$EnvironmentValues = @{}
-
-foreach ($Line in Get-Content -LiteralPath $EnvFile) {
-
-    $TrimmedLine = $Line.Trim()
-
-    if ([string]::IsNullOrWhiteSpace($TrimmedLine) -or $TrimmedLine.StartsWith("#")) {
-        continue
-    }
-
-    if ($TrimmedLine -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$') {
-        $Key = $Matches[1]
-        $Value = $Matches[2].Trim()
-    }
-    else {
-        throw "Invalid environment variable declaration in .env file."
-    }
-
-    if (($Value.StartsWith('"') -and $Value.EndsWith('"')) -or
-        ($Value.StartsWith("'") -and $Value.EndsWith("'"))) {
-        $Value = $Value.Substring(1, $Value.Length - 2)
-    }
-
-    $EnvironmentValues[$Key] = $Value
-}
-
-# Step 5: Select credentials based on the application version.
-if ($Version.EndsWith("-SNAPSHOT")) {
-    $UsernameKey = "REPOSILITE_SNAPSHOT_USERNAME"
-    $PasswordKey = "REPOSILITE_SNAPSHOT_TOKEN"
-}
-else {
-    $UsernameKey = "REPOSILITE_RELEASE_USERNAME"
-    $PasswordKey = "REPOSILITE_RELEASE_TOKEN"
-}
-
-# Step 6: Validate the selected credentials.
-if (-not $EnvironmentValues.ContainsKey($UsernameKey)) {
-    throw "Required credential variable '$UsernameKey' is missing from .env."
-}
-
-if (-not $EnvironmentValues.ContainsKey($PasswordKey)) {
-    throw "Required credential variable '$PasswordKey' is missing from .env."
-}
-
-$ReposiliteUsername = $EnvironmentValues[$UsernameKey]
-$ReposilitePassword = $EnvironmentValues[$PasswordKey]
-
-if ([string]::IsNullOrWhiteSpace($ReposiliteUsername) -or
-    [string]::IsNullOrWhiteSpace($ReposilitePassword)) {
-    throw "The selected Reposilite credentials cannot be empty."
-}
-
-# Step 7: Save existing process environment values.
-$PreviousUsername = [Environment]::GetEnvironmentVariable($UsernameKey, "Process")
-$PreviousPassword = [Environment]::GetEnvironmentVariable($PasswordKey, "Process")
-
-$LocationChanged = $false
-
-try {
-    # Step 8: Set credentials for the Gradle process.
-    [Environment]::SetEnvironmentVariable(
-        $UsernameKey,
-        $ReposiliteUsername,
-        "Process"
-    )
-
-    [Environment]::SetEnvironmentVariable(
-        $PasswordKey,
-        $ReposilitePassword,
-        "Process"
-    )
-
-    # Step 9: Execute Gradle publishing.
-    Push-Location $ConfigServerPath
-    $LocationChanged = $true
-
-    & $GradleWrapper `
-        --no-daemon `
-        "-PreleaseVersion=$Version" `
-        "publishBootJavaPublicationToReposiliteRepository"
-
-    $GradleExitCode = $LASTEXITCODE
-
-    if ($GradleExitCode -ne 0) {
-        throw "Gradle publishing failed with exit code $GradleExitCode."
-    }
-
-    Write-Host "Config Server artifact published successfully."
-}
-finally {
-    # Step 10: Restore the original PowerShell directory.
-    if ($LocationChanged) {
-        Pop-Location
-    }
-
-    # Step 11: Restore the original process environment variables.
-    [Environment]::SetEnvironmentVariable(
-        $UsernameKey,
-        $PreviousUsername,
-        "Process"
-    )
-
-    [Environment]::SetEnvironmentVariable(
-        $PasswordKey,
-        $PreviousPassword,
-        "Process"
-    )
-}
+docker pull hello-world:latest
 ```
 
-### Script explanation
+Explanation: downloads the `hello-world` image from Docker Hub to the local Docker image cache.
 
-| Code section | What it does |
+Tag it for the private registry:
+
+```powershell
+docker tag hello-world:latest localhost:5000/epims/registry-smoke-test:1.0.0
+```
+
+Explanation:
+
+- `docker tag` creates another local image reference without rebuilding the image.
+- `hello-world:latest` is the existing local image.
+- `localhost:5000` selects the private registry endpoint.
+- `epims/registry-smoke-test` is the repository path/name.
+- `1.0.0` is the explicit smoke-test version tag.
+
+Push it:
+
+```powershell
+docker push localhost:5000/epims/registry-smoke-test:1.0.0
+```
+
+Verified push result:
+
+```text
+4f55086f7dd0: Pushed
+1.0.0: digest: sha256:d1a8d0a4eeb63aff09f5f34d4d80505e0ba81905f36158cc3970d8e07179e59e size: 1023
+```
+
+Docker also displayed a notice that not all multiplatform content was present and only the available single-platform image was pushed. This smoke test used the local Docker Desktop `linux/amd64` engine. It was not intended to validate a multi-platform application image.
+
+### 10.5 Pull the image back from the registry
+
+Remove only the local registry-tagged reference:
+
+```powershell
+docker image rm localhost:5000/epims/registry-smoke-test:1.0.0
+```
+
+Explanation:
+
+- `docker image rm` removes the local image reference.
+- It does not delete the image stored in the remote registry.
+- It does not remove the registry's named volume.
+
+Pull it again:
+
+```powershell
+docker pull localhost:5000/epims/registry-smoke-test:1.0.0
+```
+
+Verified result:
+
+```text
+Digest: sha256:d1a8d0a4eeb63aff09f5f34d4d80505e0ba81905f36158cc3970d8e07179e59e
+Status: Downloaded newer image for localhost:5000/epims/registry-smoke-test:1.0.0
+```
+
+Inspect the downloaded image:
+
+```powershell
+docker image inspect localhost:5000/epims/registry-smoke-test:1.0.0
+```
+
+The inspection confirmed:
+
+- `Os`: `linux`
+- `Architecture`: `amd64`
+- The expected repository tag.
+- The same manifest digest: `sha256:d1a8d0a4eeb63aff09f5f34d4d80505e0ba81905f36158cc3970d8e07179e59e`.
+
+Matching digest after push and pull confirms that the registry served the same image content.
+
+### 10.6 Registry smoke-test completion
+
+| Verification | Result |
 |---|---|
-| `[CmdletBinding()]` | Enables standard PowerShell advanced-script behavior. |
-| `param(...)` | Declares the required version argument. |
-| Version regex | Accepts `major.minor.patch` with optional `-SNAPSHOT`; it is a simple project-specific validator, not a complete SemVer implementation. |
-| `$PSScriptRoot` | Refers to the directory containing this script, making path discovery independent of the shell's starting directory. |
-| `Split-Path` / `Join-Path` | Derives the workspace, Config Server and `.env` paths. |
-| `Test-Path` | Stops early if the Gradle wrapper or `.env` is missing. |
-| `$EnvironmentValues = @{}` | Creates a hashtable to hold parsed environment key/value pairs. |
-| `Get-Content` | Reads `.env` line by line. |
-| `Trim()` | Removes whitespace around each line. |
-| `IsNullOrWhiteSpace` | Skips empty lines. |
-| `StartsWith("#")` | Skips full-line comments. |
-| `-match` and `$Matches` | Parses a simple `KEY=VALUE` declaration; `$Matches[1]` is the key and `$Matches[2]` is the value. |
-| Quote handling | Removes one matching pair of outer single or double quotes. |
-| Snapshot/release branch | Selects snapshot token names for a `-SNAPSHOT` version and release token names otherwise. |
-| Credential checks | Fails before Gradle if the required username/token is missing or blank. |
-| `GetEnvironmentVariable(..., "Process")` | Saves existing process-level values for restoration. |
-| `SetEnvironmentVariable(..., "Process")` | Makes the values available to the Gradle child process without setting user- or machine-wide variables. |
-| `Push-Location` | Temporarily changes to the Config Server project directory and saves the previous location. |
-| `& $GradleWrapper` | Invokes the Windows Gradle wrapper batch file. |
-| `--no-daemon` | Uses a single-use Gradle daemon, avoiding stale daemon environment values for this publishing run. |
-| `-PreleaseVersion=$Version` | Supplies the version to the Gradle project property. |
-| Maven Publish task | Runs the configured publication to Reposilite. |
-| `$LASTEXITCODE` | Captures the native process exit code. |
-| `throw` | Reports a publishing failure when Gradle returns a non-zero exit code. |
-| `finally` | Attempts cleanup whether publishing succeeds or fails. |
-| `Pop-Location` | Restores the caller's original directory. |
-| final `SetEnvironmentVariable` calls | Restore the original process environment values. |
+| Nginx HTTPS endpoint | Passed |
+| Certificate hostname/IP SAN | Passed |
+| curl certificate validation | Passed |
+| Unauthenticated API challenge | Passed; expected HTTP 401 |
+| Docker login | Passed |
+| Docker image push | Passed |
+| Docker image pull | Passed |
+| Digest consistency | Passed |
+| Image metadata inspection | Passed |
 
-**Parser limitation:** This is intentionally a small `.env` parser. It supports simple `KEY=VALUE`, blank lines, full-line comments, and matching outer quotes. It does not implement all Docker Compose `.env` behavior such as `export KEY=`, inline comments, interpolation, multiline values or escaped quotes.
+**Step 10 status:** Local private registry is operational for authenticated single-platform push/pull tests. Production authorization scopes, public DNS/TLS, backup/restore, OCI deployment, and multi-platform EPIMS image publishing remain future work.
 
-**Security limitation:** Process environment variables are preferable to hard-coded source values, but they are not a dedicated secrets manager. A sufficiently privileged process may inspect another process's environment. The script restores values in the parent PowerShell process; Gradle receives the credentials while it runs. Use protected CI secrets or OpenBao for production automation.
+---
 
-## 11.12 PowerShell execution policy — safe local execution
+## 11 — Current Infrastructure Service Inventory
 
-The successful run used:
+The local root `compose.yaml` currently includes these services:
 
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process -Force
-```
+| Service | Image | Host exposure | Persistence / configuration |
+|---|---|---|---|
+| MongoDB | `mongo:8` | `127.0.0.1:27017` | Existing external data volume and config volume |
+| Reposilite | `ghcr.io/dzikoysk/reposilite:3.6.7` | `127.0.0.1:8081` | `epims-reposilite-data` |
+| Distribution | `registry:3.1.2` | No direct host port | `epims-registry-data`; htpasswd and HTTP secret |
+| Nginx registry proxy | `nginx:1.31.8-alpine3.24` | `127.0.0.1:5000` to container 443 | Read-only Nginx config and certificate mounts |
 
-- `Set-ExecutionPolicy` changes policy at the specified scope.
-- `RemoteSigned` allows locally created scripts and requires downloaded scripts to be signed unless unblocked.
-- `Process` limits the change to the current PowerShell process.
-- `Force` suppresses the confirmation prompt.
+The Config Server is not yet listed as a running Compose service in this verified inventory. Its artifact exists in Reposilite, but its runtime-only image has not yet been built and deployed.
 
-Verify:
+### 11.1 Architecture boundaries
 
-```powershell
-Get-ExecutionPolicy -List
-```
+- Reposilite is the Maven/JAR repository.
+- Distribution is the OCI/Docker image registry.
+- Nginx is the HTTPS reverse proxy for Distribution.
+- Application repositories build and publish application artifacts.
+- `epims-infrastructure` retrieves exact application artifacts and builds/publishes runtime container images.
+- Docker Compose runs the infrastructure services locally and will be used on the OCI VM.
+- Local host bindings are restricted to loopback. OCI ingress will be configured separately.
 
-Observed output:
+### 11.2 Licensing and operational notes
 
-```text
-Scope          ExecutionPolicy
------          ---------------
-MachinePolicy  Undefined
-UserPolicy     Undefined
-Process        RemoteSigned
-CurrentUser    Undefined
-LocalMachine   Undefined
-```
+Keep a license and version register for all infrastructure components. Verify the selected version's license and upstream security advisories before production upgrades.
 
-This did not change CurrentUser or LocalMachine policy and did not require administrator elevation. The process-scoped setting disappears when the PowerShell process closes. If an organization enforces policy through Group Policy, follow its approved script-signing or IT process; do not attempt to bypass that control.
+Current notable components:
 
-## 11.13 Run the publishing script
+| Component | License / operational note |
+|---|---|
+| Nginx OSS | BSD-2-Clause; distinguish from Nginx Plus |
+| CNCF Distribution | Apache-2.0 |
+| Reposilite | Apache-2.0 |
+| Docker Compose | Docker Compose plugin; use the applicable upstream license and distribution terms |
+| MongoDB Community Server | SSPL; source-available, not OSI-approved open source |
 
-From the infrastructure repository:
+Do not describe MongoDB Community Server as OSI-approved open source. Reassess licensing and support requirements before commercial production deployment.
 
-```powershell
-Set-Location "C:\Users\Joshua\Desktop\epims\epims-infrastructure"
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process -Force
-.\scripts\Publish-ConfigServer.ps1 -Version "1.0.1"
-```
+### 11.3 Next implementation step
 
-For a new snapshot build, an example is:
+**Step 12 — Retrieve Config Server `1.0.1` from Reposilite into an infrastructure-owned staging directory.**
 
-```powershell
-.\scripts\Publish-ConfigServer.ps1 -Version "1.0.2-SNAPSHOT"
-```
+The next work should:
 
-Use a new version for changed release binaries. Do not overwrite/reuse an already published release version.
+1. Create a deterministic artifact download script in `epims-infrastructure`.
+2. Retrieve the exact release JAR and POM.
+3. Verify HTTP status, non-zero file size, and artifact checksum where available.
+4. Keep credentials out of command-line arguments and logs.
+5. Create an infrastructure-owned runtime-only Dockerfile.
+6. Select and verify an ARM64-compatible Java runtime image for OCI Ampere.
+7. Build and test the image locally with the target platform strategy.
+8. Push a versioned Config Server image to the private Distribution registry.
+9. Add the Config Server service to Compose only after the image and runtime secret mounts are ready.
 
-Observed successful output:
+Do not compile application source code inside the infrastructure Docker build. Do not copy the Config Server GitHub private key or passphrase into the image.
 
-```text
-To honour the JVM settings for this build a single-use Daemon process will be forked.
-Daemon will be stopped at the end of the build
-
-BUILD SUCCESSFUL in 8s
-6 actionable tasks: 2 executed, 4 up-to-date
-Config Server artifact published successfully.
-```
-
-## 11.14 Verify the published artifact
-
-Open:
-
-```text
-http://localhost:8081
-```
-
-Navigate to:
-
-```text
-/releases/com/epims/pharmacy/epims-config-server/1.0.1/
-```
-
-The UI screenshot confirmed:
-
-```text
-epims-config-server-1.0.1.jar
-epims-config-server-1.0.1.pom
-```
-
-Observed sizes were 43.1 MB for the JAR and 1 KB for the POM. Reposilite's Gradle Kotlin tab showed:
-
-```kotlin
-implementation("com.epims.pharmacy:epims-config-server:1.0.1")
-```
-
-That coordinate is metadata for consuming the artifact. The Config Server executable JAR itself is deployed as an application, not added as a normal dependency to EPS Core.
-
-## 11.15 Publishing completion checklist
-
-- [x] Reposilite 3.6.7 is running locally.
-- [x] Release and snapshot repositories exist.
-- [x] Dedicated release and snapshot publisher tokens exist.
-- [x] Maven Publish configuration is present.
-- [x] Gradle publication task was discovered and verified.
-- [x] Publishing script was created.
-- [x] Process-only execution policy used; no system-wide policy change.
-- [x] Config Server `1.0.1` publication succeeded.
-- [x] JAR and POM visible in the Reposilite release repository.
-- [ ] Snapshot publication separately tested.
-- [ ] Remote HTTPS endpoint configured.
-- [ ] CI/CD publishing implemented.
-- [ ] Repository backup and restore tested.
-
-## 11.16 Next implementation step
-
-Complete the Config Server Dockerfile in `epims-config-server`, then add the Config Server service to the existing infrastructure Compose file. Preserve MongoDB and Reposilite services and all existing named volumes. Mount the SSH private key, passphrase and `known_hosts` at the exact `/run/secrets/` paths expected by `application.yml`. Then verify, in order:
-
-1. Container can read each mounted secret file.
-2. Spring Config Tree import loads the private key and passphrase properties.
-3. JGit/Apache MINA SSHD decrypts the key and verifies GitHub host key.
-4. Config Server clones the private `epims-config` repository.
-5. Container health endpoint succeeds.
-6. `http://localhost:8888/epims-eps-core/default` returns the expected configuration.
-7. No secret file is tracked by Git or included in the image.
-
-Do not mark the Config Server container deployment complete until all applicable checks pass.
-
-
-
-# 12. Rebuild acceptance checklist and maintenance policy
-
-## 12.1 Clean-workstation acceptance checklist
-
-- [ ] Windows/PowerShell, Git, Java toolchain, Docker Desktop and IntelliJ versions recorded and installed.
-- [ ] All four Git repositories cloned and their remote URLs/branches verified.
-- [ ] EPS Core builds using its checked-in Gradle Wrapper and documented Java toolchain.
-- [ ] `epims-config` contains only non-secret configuration/placeholders.
-- [ ] Config Server builds and its dependency versions are resolved.
-- [ ] GitHub Deploy Key is registered as read-only; host key is verified; no private key is committed.
-- [ ] MongoDB data is either restored from backup or initialized as a new environment; authentication and application role are verified.
-- [ ] Reposilite image pulled at the pinned version; named volume verified; repositories/tokens bootstrapped or restored.
-- [ ] Config Server JAR/POM can be published to Reposilite.
-- [ ] Config Server Dockerfile and Compose runtime are completed and tested.
-- [ ] Config Server secret mounts and private Git clone are verified from inside the container.
-- [ ] EPS Core can retrieve configuration and connect to MongoDB with actual secret resolution.
-- [ ] Backups and restores are tested before any production data is introduced.
-- [ ] OCI deployment, TLS, firewall rules, OpenBao, Harbor and CI/CD are completed before calling the cloud environment production-ready.
-
-## 12.2 Documentation change control
-
-For every implementation change:
-
-1. Record the final decision and rationale.
-2. Record the exact repository and file path.
-3. Include complete code/configuration when a clean rebuild depends on it.
-4. Explain each non-obvious line/property and every command.
-5. Record expected output and actual verification separately.
-6. Record security implications and recovery/rollback instructions.
-7. Update the architecture diagram and status register.
-8. Mark superseded choices as superseded; do not leave them as active alternatives.
-9. Never insert secret values, private keys, passphrases, database passwords or patient data.
-10. Do not mark a step `[VERIFIED]` based only on a successful build if runtime behavior was not tested.
-
-## 12.3 Rebuildability limitations that remain
-
-This README is the authoritative implementation record as of 15 November 2026, but it is **not yet a fully proven one-command clean-room rebuild**. The following are still required to reach that standard:
-
-- Confirm all exact tool and image versions for every repository, including the EPS Core Gradle Wrapper and MongoDB image digest.
-- Confirm the current complete `compose.yaml`, `.env.example`, `.gitignore`, Dockerfiles and all referenced files are committed in their correct repositories.
-- Confirm Config Server Dockerfile and runtime service are complete.
-- Add a safe first-run MongoDB initialization/restore procedure without assuming existing data volumes.
-- Add a Reposilite data backup/restore procedure and test it.
-- Add OpenBao initialization, unseal/recovery, policy, backup and secret-delivery steps before using it.
-- Add Harbor installation, TLS, authentication, project/robot-account and image-pull steps.
-- Add OCI account/region/capacity, network, SSH, firewall, VM, disk, Docker and Compose provisioning steps.
-- Add Jenkins installation, credentials, pipeline, artifact/image promotion, rollback and audit steps.
-- Run the entire guide on a clean machine or disposable VM and record the actual results.
-
-Until these are completed, describe the README as the **authoritative rebuild guide in progress**, not as a fully validated clean-room automation package.
