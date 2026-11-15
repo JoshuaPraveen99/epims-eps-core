@@ -1,0 +1,41 @@
+digraph EPIMS {
+  graph [rankdir=TB, bgcolor="white", pad="0.3", nodesep="0.42", ranksep="0.48", splines=polyline, fontname="Arial", label="EPIMS Pharmacy Platform — Target Architecture", labelloc=t, fontsize=20];
+  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=10, color="#64748b", fillcolor="#f8fafc", margin="0.18,0.12"];
+  edge [color="#64748b", arrowsize=0.7, penwidth=1.15, fontname="Arial", fontsize=9];
+  channels_title [label="USER CHANNELS", shape=plaintext, fontsize=11, fontcolor="#2563eb"];
+  patient [label="Patient Portal\nReact UI", fillcolor="#eff6ff"];
+  pharmacy [label="Pharmacy Operations\nEPS React UI", fillcolor="#eff6ff"];
+  mail [label="Mail Operations\nSBMO React UI", fillcolor="#eff6ff"];
+  gateway [label="API Gateway\nRouting • Authentication • Rate limits", fillcolor="#dbeafe"];
+  services_title [label="EPIMS APPLICATION SERVICES", shape=plaintext, fontsize=11, fontcolor="#15803d"];
+  eps [label="EPS Core\nOrder lifecycle • DUR • Fill • POS", fillcolor="#dcfce7"];
+  epr [label="EPR Core\nPatient information", fillcolor="#dcfce7"];
+  sbmo [label="SBMO Core\nMail-order operations", fillcolor="#dcfce7"];
+  notify [label="Notification Service\nOrder status events", fillcolor="#dcfce7"];
+  digital [label="Digital Core / Shared Contracts", fillcolor="#dcfce7"];
+  data_title [label="PERSISTENCE & MESSAGING", shape=plaintext, fontsize=11, fontcolor="#7c3aed"];
+  mongo [label="MongoDB\nService-owned data", fillcolor="#f3e8ff"];
+  docs [label="Document Storage\nMDS / object storage", fillcolor="#f3e8ff"];
+  events [label="Event / Message Broker\nAsynchronous order events", fillcolor="#f3e8ff"];
+  ext_title [label="EXTERNAL / ENTERPRISE INTEGRATIONS", shape=plaintext, fontsize=11, fontcolor="#c2410c"];
+  fdb [label="FDB\nDrug reference"];
+  cms [label="CMS\nPrescriber data"];
+  pbm [label="PBM\nAdjudication"];
+  psb [label="PSB / Fulfillment\nDownstream operations"];
+  eprsys [label="Enterprise Patient Records\nExternal source, if applicable"];
+  {rank=same; patient; pharmacy; mail;}
+  {rank=same; eps; epr; sbmo; notify; digital;}
+  {rank=same; mongo; docs; events;}
+  {rank=same; fdb; cms; pbm; psb; eprsys;}
+  channels_title -> patient [style=invis];
+  patient -> gateway; pharmacy -> gateway; mail -> gateway;
+  gateway -> services_title [style=invis];
+  gateway -> eps; gateway -> epr; gateway -> sbmo; gateway -> notify;
+  services_title -> eps [style=invis];
+  eps -> mongo; epr -> mongo; sbmo -> mongo; sbmo -> docs;
+  eps -> events; sbmo -> events; events -> notify;
+  data_title -> mongo [style=invis];
+  eps -> fdb; eps -> cms; eps -> pbm; sbmo -> psb; epr -> eprsys;
+  ext_title -> fdb [style=invis];
+  digital -> eps [style=dashed, label="shared contracts", constraint=false];
+}

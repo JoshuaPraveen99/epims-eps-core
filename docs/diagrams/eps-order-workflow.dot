@@ -1,0 +1,26 @@
+digraph EPSWorkflow {
+  graph [rankdir=LR, bgcolor="white", pad="0.25", nodesep="0.35", ranksep="0.45", splines=ortho, fontname="Arial", label="EPS Prescription Order Lifecycle", labelloc=t, fontsize=18];
+  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=9, color="#64748b", fillcolor="#eff6ff", margin="0.14,0.09"];
+  edge [color="#475569", arrowsize=0.7, penwidth=1.1, fontname="Arial", fontsize=8];
+  entry [label="Order Entry"];
+  data [label="Data Entry"];
+  adjud [label="Third-Party\nAdjudication"];
+  dur [label="Drug Utilization\nReview (DUR)"];
+  exception [label="Third-Party\nException Queue\n(Pharmacist) ", fillcolor="#fef3c7"];
+  verify [label="Data Verification"];
+  fill [label="Fill"];
+  product [label="Product Verification"];
+  decision [shape=diamond, label="Order type?", fillcolor="#f3e8ff", margin="0.08"];
+  pos [label="Point of Sale\n(Pickup)", fillcolor="#dcfce7"];
+  sbmo [label="SBMO\nMail-order handoff", fillcolor="#dcfce7"];
+  psb [label="PSB / Downstream\nFulfillment"];
+  ship [label="Pack • Ship • Track"];
+  notify [label="Patient status\nnotifications", fillcolor="#fce7f3"];
+  entry -> data -> adjud -> dur -> verify -> fill -> product -> decision;
+  dur -> exception [label="rejected / needs review"];
+  exception -> verify [label="resolved"];
+  decision -> pos [label="Pickup"];
+  decision -> sbmo [label="Mail order"];
+  sbmo -> psb -> ship;
+  pos -> notify; ship -> notify;
+}

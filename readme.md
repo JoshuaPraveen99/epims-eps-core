@@ -1,12 +1,257 @@
-# EPIMS Pharmacy System — EPS Core Backend
+# EPIMS Pharmacy — Authoritative Rebuild and Implementation Guide
+
+> **Document authority:** This README is the single operational and technical reference for rebuilding the EPIMS repositories and the verified local infrastructure from a clean machine. It combines the supplied implementation README with the final decisions and verified outcomes recorded through **15 November 2026**.
+>
+> **How to read status:** `[VERIFIED]` means the action was performed and evidence was observed. `[CONFIGURED]` means the file/configuration was created but the full runtime behavior is not yet verified. `[PLANNED]` means a design decision only. `[PENDING]` means the next implementation or verification action remains. Never treat a planned architecture box as a deployed service.
+>
+> **Important:** This document distinguishes the clean-room rebuild path from historical implementation notes. Follow the **Canonical decisions**, **Current rebuild order**, and latest implementation sections first. If an older chronological note conflicts with a canonical decision, the canonical decision wins. Historical notes are retained only to explain how the current state was reached; they are not alternate instructions.
+
+## 0. Canonical decisions and current system state
+
+### 0.1 Final repository boundaries
+
+| Repository | Final responsibility | Current state |
+|---|---|---|
+| `epims-eps-core` | EPS pharmacy backend application | GitHub repository created and pushed; application development ongoing |
+| `epims-config` | Centralized non-secret application configuration; placeholders only | Private GitHub repository created; Config Server read-only deploy-key access verified |
+| `epims-config-server` | Spring Cloud Config Server application, Gradle build and its Dockerfile | Source/build configured; executable artifact published; container runtime still pending |
+| `epims-infrastructure` | Docker Compose, infrastructure configuration, scripts, local runtime secrets and deployment operations | Repository created; MongoDB and Reposilite Compose services configured; publishing script verified |
+
+Keep one Git repository per application or infrastructure responsibility. Do not turn this into a monorepo unless a later architecture decision explicitly changes it.
+
+### 0.2 Final technology and infrastructure decisions
+
+| Area | Final decision | Status / qualification |
+|---|---|---|
+| Developer OS | Windows 11 / PowerShell 5.1 | Current workstation |
+| IDE | IntelliJ IDEA | Current development IDE |
+| Java for current Config Server | Java 25 toolchain | Configured in `epims-config-server` |
+| Config Server framework | Spring Boot 4.0.9 | Configured |
+| Spring Cloud train | 2025.1.4 | Configured |
+| Build | Gradle Kotlin DSL + Gradle Wrapper | Configured |
+| Source control | Git + private GitHub repositories | In use |
+| Local containers | Docker Desktop + Docker Compose | In use |
+| EPS database currently configured | MongoDB Community `mongo:8` | Local Compose service and application access verified; MongoDB licensing is SSPL, not OSI-approved open source |
+| Maven/Gradle artifact repository | Reposilite `3.6.7` | Local container and Config Server release artifact verified |
+| Container image registry | Harbor | Final planned choice; not deployed |
+| Secrets platform | OpenBao | Final planned choice; not deployed |
+| Initial cloud target | OCI Compute VM, Ubuntu Server LTS ARM64 | Planned; OCI account/VM not provisioned |
+| Initial cloud orchestration | Docker Engine + Compose | Planned; Kubernetes deliberately deferred |
+| IaC / configuration management | OpenTofu + Ansible | Planned |
+| CI/CD | Jenkins | Planned |
+| Observability | Prometheus, Grafana, Micrometer and OpenTelemetry/Jaeger | Planned/incremental |
+| Messaging/cache | Kafka and Valkey | Planned; introduce when required by implemented workflows |
+| Edge/reverse proxy | Nginx | Planned |
+| Secret API | Authenticated API over OpenBao | Planned; do not assume it exists |
+| Kubernetes | Not part of initial deployment | Reconsider only when scale/operational needs justify it |
+
+**Licensing distinction:** “Free to use” does not mean “open source.” MongoDB Community Server is licensed under SSPL, which is not an OSI-approved open-source license. Do not describe the entire EPIMS stack as OSI-open-source while MongoDB remains selected. A PostgreSQL evaluation remains a future architecture decision; do not silently replace MongoDB in this rebuild guide.
+
+### 0.3 Artifact and image registry separation
+
+These are different services with different responsibilities:
+
+- **Reposilite** stores Java/Maven artifacts such as executable JARs and POM metadata.
+- **Harbor** is the selected future registry for OCI/Docker container images.
+- Reposilite does not host the Config Server Docker image in the current design.
+- Harbor is not yet deployed. Do not write Harbor push/pull commands as completed steps.
+
+### 0.4 Current Config Server build coordinates
+
+| Property | Current value |
+|---|---|
+| Gradle group | `com.epims.pharmacy` |
+| Artifact ID | `epims-config-server` |
+| Published version | `1.0.1` |
+| Maven coordinate | `com.epims.pharmacy:epims-config-server:1.0.1` |
+| Repository | Reposilite `releases` |
+| Observed JAR | `epims-config-server-1.0.1.jar` (43.1 MB shown in UI) |
+| Observed POM | `epims-config-server-1.0.1.pom` (1 KB shown in UI) |
+| Publication result | `[VERIFIED]` Gradle build successful and both files visible in Reposilite |
+
+The Config Server JAR is an executable application artifact. It is intended to be launched/deployed as an application, not added as a normal implementation dependency of EPS Core.
+
+### 0.5 Local workspace
+
+The latest active workspace path used for the infrastructure work is:
+
+```text
+C:\Users\Joshua\Desktop\epims\
+├── epims-eps-core\
+├── epims-config\
+├── epims-config-server\
+└── epims-infrastructure\
+```
+
+Earlier notes may contain a different Windows profile path. Treat the path above as the latest recorded workspace, but use your actual clone location if it differs. The scripts in this guide derive sibling repository paths from the infrastructure repository location where stated.
+
+### 0.6 Architecture overview
+
+The architecture below distinguishes implemented local components from future services. Solid green nodes are verified local components; amber nodes are planned or not yet runtime-verified.
+
+```mermaid
+flowchart TB
+    subgraph SCM["Source control — GitHub"]
+      EPS["epims-eps-core"]
+      CFG["epims-config<br/>non-secret YAML + placeholders"]
+      CS["epims-config-server"]
+      INF["epims-infrastructure"]
+    end
+
+    subgraph LOCAL["Local development — Windows + Docker Desktop"]
+      DB["MongoDB 8<br/>epims-mongodb"]
+      REPO["Reposilite 3.6.7<br/>Maven artifacts"]
+      APP["Config Server artifact 1.0.1<br/>container runtime pending"]
+      EPSRUN["EPS Core runtime<br/>integration pending"]
+    end
+
+    subgraph FUTURE["Planned cloud / platform services"]
+      HARBOR["Harbor<br/>container images"]
+      BAO["OpenBao<br/>secrets"]
+      OCI["OCI Compute VM<br/>Ubuntu ARM64 + Compose"]
+      CI["Jenkins + OpenTofu + Ansible"]
+      OBS["Prometheus + Grafana + OpenTelemetry"]
+      MSG["Kafka + Valkey"]
+    end
+
+    CS --> APP
+    CFG --> APP
+    APP --> EPSRUN
+    EPSRUN --> DB
+    INF --> DB
+    INF --> REPO
+    CS --> REPO
+    CI -. future deployment .-> OCI
+    OCI -. future image pulls .-> HARBOR
+    BAO -. future secret delivery .-> APP
+    OBS -. future monitoring .-> OCI
+    MSG -. future event/cache .-> EPSRUN
+
+    classDef verified fill:#E8F5E9,stroke:#81A88A,color:#174D2A
+    classDef configured fill:#EAF2FF,stroke:#7895C5,color:#17365D
+    classDef planned fill:#FFF4E5,stroke:#C89B55,color:#69410A
+    class REPO,DB verified
+    class EPS,CFG,CS,INF configured
+    class APP,EPSRUN,HARBOR,BAO,OCI,CI,OBS,MSG planned
+```
+
+**Interpretation:** The Config Server JAR has been published, but its container deployment and its live Config Server endpoint have not been verified in this latest infrastructure sequence. The diagram must not be interpreted as proof that every arrow is operational.
+
+### 0.7 Pharmacy business workflow (target)
+
+**Takeaway / pickup**
+
+```mermaid
+flowchart LR
+  A["Order Entry"] --> B["Data Entry"] --> C["Third-party adjudication"]
+  C --> D["Drug Utilization Review"]
+  D --> E["Exception handling"]
+  E --> F["Data verification"]
+  F --> G["Fill"]
+  G --> H["Product verification"]
+  H --> I["POS"]
+```
+
+**Mail order**
+
+```mermaid
+flowchart LR
+  A["Order Entry"] --> B["Data Entry"] --> C["Third-party adjudication"]
+  C --> D["Drug Utilization Review"]
+  D --> E["Exception handling"]
+  E --> F["Data verification"]
+  F --> G["SBMO"] --> H["PSB"] --> I["DOMS"] --> J["PCS"]
+  J --> K["Pack, fulfill and ship"]
+```
+
+These are target business workflows, not claims that all pharmacy subsystems have been implemented. Planned integrations include EPR (patient information), FDB (drug data/names), and CMS (prescriber information). Keep patient/clinical data out of documentation, screenshots, sample secrets, and test fixtures unless synthetic data is used.
+
+### 0.8 Current implementation status — authoritative register
+
+| Component / milestone | Status | What is actually established |
+|---|---|---|
+| Four Git repositories | `[VERIFIED]` | Repositories and responsibilities recorded; EPS Core pushed |
+| Config repository SSH access | `[VERIFIED]` | Read-only GitHub Deploy Key, SSH host verification, and `git ls-remote` tested from Windows |
+| Config Server source/build | `[CONFIGURED]` | Java 25, Spring Boot 4.0.9, Spring Cloud 2025.1.4; Gradle build and publication task available |
+| MongoDB | `[VERIFIED]` | Compose service healthy; application user can access `orders` in `epims-eps` |
+| Reposilite hosting | `[VERIFIED]` | `ghcr.io/dzikoysk/reposilite:3.6.7`, local UI, persistent volume, repositories and tokens observed |
+| Config Server artifact publication | `[VERIFIED]` | Version `1.0.1` JAR and POM visible in `releases` |
+| Config Server Dockerfile/container | `[PENDING]` | Dockerfile save status and Compose integration not confirmed |
+| Config Server container secrets | `[PENDING]` | Host secret files prepared; mount and in-container access not verified |
+| Config Server container Git clone | `[PENDING]` | Host-side Git access verified; container-side JGit SSH clone not verified |
+| EPS Core Config Client integration | `[CONFIGURED / PENDING TEST]` | Config import recorded; end-to-end runtime not yet established |
+| Harbor | `[PLANNED]` | Not deployed |
+| OpenBao | `[PLANNED]` | Not deployed |
+| OCI VM | `[PLANNED]` | Not provisioned |
+| Jenkins / OpenTofu / Ansible | `[PLANNED]` | Not implemented |
+| Backup/restore runbooks | `[PENDING]` | No clean-room restore test recorded |
+
+### 0.9 Rebuild order
+
+Use this order when rebuilding on a clean workstation:
+
+1. Install and verify Git, Java 25, Docker Desktop, PowerShell 5.1, and IntelliJ IDEA.
+2. Clone the four Git repositories into one workspace folder.
+3. Rebuild EPS Core Gradle structure and application configuration using the EPS Core sections below.
+4. Rebuild `epims-infrastructure` directory, `.gitignore`, `.env.example`, and local `.env`.
+5. Inspect existing Docker volumes before starting stateful services. If this is a genuinely new environment, initialize MongoDB; if restoring an existing environment, restore its backup rather than creating an empty database.
+6. Start MongoDB through Compose and verify health, authentication, database name, role and collection access.
+7. Pull and start Reposilite 3.6.7 through Compose; verify persistent storage and perform first-run repository/token setup only for a new empty instance.
+8. Clone/configure `epims-config`; prepare the dedicated read-only GitHub Deploy Key and verified `known_hosts`.
+9. Build the Config Server and publish a versioned JAR to Reposilite using the script documented later.
+10. Complete the Config Server Dockerfile, Compose service, secret mounts, in-container SSH test, health endpoint and configuration endpoint. These remain pending.
+11. Configure EPS Core as a Config Client and verify end-to-end startup only after Config Server and secret resolution are operational.
+12. Later: provision OCI Compute, deploy Docker/Compose, move repository access to HTTPS, establish OpenBao, Harbor, Jenkins, IaC, backups and monitoring.
+
+### 0.10 Safety rules for a rebuild
+
+- Never run `docker compose down -v` on a stack containing data you need.
+- Never delete MongoDB or Reposilite named volumes as a cleanup shortcut.
+- Never commit `.env`, token secrets, SSH private keys, passphrases, database passwords, or production patient data.
+- A `.gitignore` rule does not untrack a file already committed.
+- Do not use the Reposilite administrator token for Gradle publishing.
+- Do not expose MongoDB publicly.
+- Do not use plain HTTP for a remote/cloud artifact repository; local loopback HTTP is the current development-only configuration.
+- Do not treat a successful artifact publication as proof of application container deployment.
+- Do not treat Config Server retrieval of `${PLACEHOLDER}` strings as proof that secret values were resolved.
+- Do not infer that a container is healthy merely because it is running; check its health and application endpoint.
+- Do not change Java, Spring Boot, Spring Cloud, MongoDB, or image versions without updating this matrix and validating compatibility.
+
+---
+
+## 0.11 Superseded choices and historical notes
+
+The following are not current decisions:
+
+- Reposilite is the selected Maven repository; earlier ideas about other Maven artifact repository products are superseded.
+- Harbor is the selected future container-image registry; Reposilite is not the Docker image registry.
+- OpenBao is the selected future secrets platform; it is not yet deployed.
+- OCI Compute + Ubuntu ARM64 + Docker Compose is the intended first cloud deployment; Kubernetes is deferred.
+- Java 25 / Spring Boot 4.0.9 / Spring Cloud 2025.1.4 are the latest recorded Config Server build choices. Older Java 8, 17, or 21 references in the development log are historical and must not be used to build the current Config Server without an explicit compatibility decision.
+- MongoDB 8 remains the current EPS database configuration in this implementation record. The licensing qualification is stated in Section 0.2.
+
+---
+
+
+# Historical implementation record — retained from the supplied README
+
+> The following sections preserve the detailed commands, code, explanations, and troubleshooting from the original README. They record the implementation sequence as it happened. Use the canonical decisions and status register above whenever an older value or proposed component differs from the final architecture.
+
+# EPIMS Pharmacy System — EPS Core, Central Configuration and Infrastructure Setup
 
 ## System Architecture at a Glance
 
+> **Documentation scope:** This is the detailed implementation README, not only an architecture summary. It intentionally retains the practical setup steps, commands, file contents, verification checks, and explanations from the initial repository setup through MongoDB, `epims-config`, `epims-config-server`, and `epims-infrastructure`. Keep the `docs/diagrams/` directory with this file so the architecture images render on GitHub.
+
+> **Oracle deployment rule:** Build and verify locally using the same container paths and runtime configuration that will be used on Oracle Cloud. Create or identify the GitHub Config Server SSH deploy key on the local system, register its public key with the private `epims-config` repository, and securely provision that exact same private key to the Oracle-hosted Config Server. Do not generate a second GitHub deploy key on Oracle merely for deployment. The Oracle VM administrator SSH key is a separate credential.
+
 > **Diagram assets:** The images are stored under `docs/diagrams/`. Keep this folder alongside `README.md` when copying the README or pushing it to GitHub; otherwise, the images will not render.
+
+> **Diagram visual standard:** All README architecture images use a consistent clean-card style: white background, subtle gray outline, rounded pale-blue environment panels, pale-green integration panels, centered labels, and muted subtitles. Keep this visual language for future diagrams.
 
 The following block diagram shows the intended system-level design. The repository and configuration components mentioned later in this README are at different implementation stages; the diagram is an architecture target, not a claim that every service is already running.
 
-![EPIMS Pharmacy System target architecture](docs/diagrams/epims-system-architecture.png)
+![EPIMS Pharmacy System target architecture](docs/diagrams/epims-platform-architecture.png)
 
 **Architecture interpretation**
 - The service names describe planned repository responsibilities. Implement services incrementally and verify each integration.
@@ -44,7 +289,7 @@ For mail orders, the workflow will integrate with SBMO for packing, fulfillment,
 
 These workflows describe the intended architecture; they will be implemented incrementally.
 
-![EPS pharmacy order workflow](docs/diagrams/eps-pharmacy-workflow.png)
+![EPS pharmacy order workflow](docs/diagrams/eps-order-workflow.png)
 
 ### 1.3 Technology Stack
 
@@ -2429,6 +2674,284 @@ The Config Server project compiles and produces a JAR artifact.
 
 ## Step 10.6 — Configure SSH Authentication for the Central Configuration Repository
 
+### Current implementation record — 11 November 2026
+
+This section is a chronological, step-by-step record of the SSH setup completed on the new Windows laptop. Keep the commands, explanations, expected results, and checkpoints together. Do not replace this procedure with a high-level summary.
+
+> **Current status:** Steps 1–5 below are complete. The GitHub Deploy Key was registered with read-only access. SSH authentication and repository read access are the next checkpoints and are not yet marked complete.
+
+| Item | Current verified value / status |
+|---|---|
+| Windows user profile | `C:\Users\Joshua` |
+| SSH directory | `C:\Users\Joshua\.ssh` |
+| OpenSSH client | `OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2` |
+| Key algorithm | Ed25519 |
+| Private key filename | `epims-config-server` |
+| Public key filename | `epims-config-server.pub` |
+| Public-key fingerprint | `SHA256:oUtkmOFnEtx0qusj2w+D7SuUafXwwVu+WFmiQt5JrJk` |
+| GitHub key comment | `epims-config-server-github` |
+| GitHub repository | `JoshuaPraveen99/epims-config` |
+| GitHub Deploy Key registration | **Completed**, read-only (write access disabled) |
+| SSH authentication test | **Completed** — GitHub accepted the EPIMS Deploy Key on 11 November 2026 |
+| Git read/clone test | **Completed** — `git ls-remote` returned refs and exit code `0` on 11 November 2026 |
+| Config Server Git-backend test | **Pending** |
+| Oracle provisioning | **Pending** — securely provision this exact private key; never generate a replacement on Oracle |
+
+### Step 1 — Verify that the Windows OpenSSH client is installed
+
+**Where:** PowerShell on the Windows laptop.
+
+Run:
+
+```powershell
+ssh -V
+Get-Command ssh
+```
+
+**Meaning of each command:**
+
+- `ssh -V` prints the installed SSH client version.
+- `Get-Command ssh` shows which executable PowerShell will run.
+
+**Verified output from this laptop:**
+
+```text
+OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2
+
+Application  ssh.exe  9.5.6.4  C:\Windows\System32\OpenSSH\ssh.exe
+```
+
+**Checkpoint:** Both commands succeeded. Windows OpenSSH is available. Do not install another SSH client just for this setup.
+
+### Step 2 — Check whether an SSH directory already exists
+
+The first inspection showed that `C:\Users\Joshua\.ssh` did not exist. This was a new laptop, so there were no existing local keys to reuse.
+
+Run:
+
+```powershell
+$sshDir = "$env:USERPROFILE\.ssh"
+
+Write-Host "Current Windows user directory:" $env:USERPROFILE
+Write-Host "SSH directory:" $sshDir
+
+Get-ChildItem $sshDir -Force
+```
+
+**Meaning:**
+
+- `$env:USERPROFILE` is the current Windows user's home directory.
+- `$sshDir` stores the standard SSH directory path for reuse in commands.
+- `Write-Host` prints the resolved paths.
+- `Get-ChildItem -Force` lists files, including hidden files. If the directory does not exist, PowerShell reports that it cannot find the path.
+
+**Observed result:** `C:\Users\Joshua\.ssh` did not exist.
+
+### Step 3 — Create the SSH directory
+
+Run:
+
+```powershell
+New-Item -ItemType Directory -Path "$env:USERPROFILE\.ssh" -Force
+```
+
+**Meaning:**
+
+- `New-Item` creates a filesystem item.
+- `-ItemType Directory` specifies that the item is a folder.
+- `-Path` selects the location under the current Windows profile.
+- `-Force` allows the command to succeed if the directory already exists.
+
+**Verified result:** The directory `C:\Users\Joshua\.ssh` was created.
+
+### Step 4 — Generate the dedicated EPIMS Config Server SSH key pair
+
+We selected Ed25519 for this dedicated GitHub Deploy Key. The key was generated once on the local Windows laptop. The same private key is intended to be securely provisioned to Oracle later.
+
+Run:
+
+```powershell
+ssh-keygen -t ed25519 -a 100 `
+  -f "$env:USERPROFILE\.ssh\epims-config-server" `
+  -C "epims-config-server-github"
+```
+
+**Meaning of every option:**
+
+- `ssh-keygen` creates an SSH key pair.
+- `-t ed25519` selects the Ed25519 key algorithm.
+- `-a 100` sets the key-derivation function rounds used when protecting the private key with a passphrase.
+- `-f` specifies the output filename and location.
+- `-C` adds a descriptive comment to identify the key.
+- The backtick (`` ` ``) is PowerShell's line-continuation character.
+
+When prompted, enter a strong passphrase and enter it again for confirmation. Keep the passphrase in an approved password manager. Never place it in this README, Git, a Dockerfile, or chat.
+
+**Verified result:** `ssh-keygen` reported that it saved the private and public keys at:
+
+```text
+C:\Users\Joshua\.ssh\epims-config-server
+C:\Users\Joshua\.ssh\epims-config-server.pub
+```
+
+The files have different purposes:
+
+| File | Purpose | Handling |
+|---|---|---|
+| `epims-config-server` | Private key used by the Config Server to authenticate to GitHub | Secret; never share or commit |
+| `epims-config-server.pub` | Public key registered with GitHub | Safe to provide to GitHub |
+
+### Step 5 — Verify the public-key fingerprint
+
+Run:
+
+```powershell
+ssh-keygen -lf "$env:USERPROFILE\.ssh\epims-config-server.pub"
+```
+
+**Meaning:**
+
+- `ssh-keygen -l` displays the key fingerprint.
+- `-f` identifies the public-key file to inspect.
+- This command reads the public key; it does not print or expose the private-key contents.
+
+**Verified output:**
+
+```text
+256 SHA256:oUtkmOFnEtx0qusj2w+D7SuUafXwwVu+WFmiQt5JrJk epims-config-server-github (ED25519)
+```
+
+Record this fingerprint so that the registered GitHub Deploy Key can be matched to the local key.
+
+### Step 6 — Copy the public key
+
+Run:
+
+```powershell
+Get-Content "$env:USERPROFILE\.ssh\epims-config-server.pub" |
+    Set-Clipboard
+```
+
+**Meaning:**
+
+- `Get-Content` reads the public-key file.
+- The pipe (`|`) passes that text to the next command.
+- `Set-Clipboard` copies the public key to the Windows clipboard.
+
+Only the `.pub` file is copied. Never run this command against the private-key filename without `.pub`.
+
+### Step 7 — Register the public key as a read-only GitHub Deploy Key
+
+1. Sign in to GitHub.
+2. Open the private repository: `https://github.com/JoshuaPraveen99/epims-config`.
+3. Open **Settings → Deploy keys**.
+4. Select **Add deploy key**.
+5. Set the title to `EPIMS Config Server – GitHub SSH`.
+6. Paste the public key copied in Step 6 into the **Key** field.
+7. Leave **Allow write access** unchecked. The Config Server only needs to read configuration.
+8. Select **Add key** to save it.
+9. Reopen the Deploy Keys page and confirm that the key is listed.
+
+**Verification:** Compare the fingerprint shown by GitHub with the local fingerprint from Step 5:
+
+```text
+SHA256:oUtkmOFnEtx0qusj2w+D7SuUafXwwVu+WFmiQt5JrJk
+```
+
+**Current checkpoint:** The user confirmed that the Deploy Key was registered successfully with read-only access. This is complete. The SSH authentication test is still pending.
+
+### Step 8 — Test SSH authentication with GitHub
+
+Run this in PowerShell:
+
+```powershell
+ssh -T `
+  -i "$env:USERPROFILE\.ssh\epims-config-server" `
+  -o IdentitiesOnly=yes `
+  git@github.com
+```
+
+**Meaning:**
+
+- `ssh` starts the SSH client.
+- `-T` disables interactive terminal allocation. GitHub does not provide shell access, so a successful authentication normally reports that authentication succeeded but shell access is unavailable.
+- `-i` selects the exact EPIMS private key.
+- `-o IdentitiesOnly=yes` tells SSH to use the explicitly selected identity rather than trying unrelated keys.
+- `git@github.com` is GitHub's SSH endpoint.
+
+On the first connection, SSH may ask whether to trust GitHub's host key. Do not blindly accept an unfamiliar host key. Verify the fingerprint against GitHub's official documentation first:
+
+https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+
+**Expected success message:** A GitHub greeting indicating successful authentication, followed by a message that GitHub does not provide shell access. That message is normal.
+
+**Checkpoint:** Do not mark this step complete until the command succeeds. Share the output if it fails; do not share the private key or passphrase.
+
+### Step 9 — Verify read access to the private configuration repository
+
+Only after Step 8 succeeds, run:
+
+```powershell
+$env:GIT_SSH_COMMAND = "ssh -i `"$env:USERPROFILE\.ssh\epims-config-server`" -o IdentitiesOnly=yes"
+git ls-remote git@github.com:JoshuaPraveen99/epims-config.git
+$gitExitCode = $LASTEXITCODE
+Remove-Item Env:\GIT_SSH_COMMAND
+Write-Host "git ls-remote exit code:" $gitExitCode
+```
+
+**Meaning:**
+
+- `$env:GIT_SSH_COMMAND` temporarily tells Git to use the EPIMS private key.
+- `git ls-remote` asks GitHub for the repository's references without cloning, changing, or pushing anything.
+- `$LASTEXITCODE` captures the exit code from the Git command.
+- `Remove-Item Env:\GIT_SSH_COMMAND` removes the temporary override so it does not affect later Git commands.
+- Exit code `0` indicates that the command completed successfully. A repository with no references may produce no reference lines, so check the exit code as well as the output.
+
+**Verified output from this laptop (11 November 2026):**
+
+```text
+0ca838941cc4c3f96c594cec8ec1bbd2fc36cc53        HEAD
+0ca838941cc4c3f96c594cec8ec1bbd2fc36cc53        refs/heads/main
+ec9b40b6666d1089719899449d1198d6d4259663        refs/heads/nova/initialsetup
+64c6cbac828dbb49cf3120cf24b30aa359d4ebd9        refs/heads/release/nova
+ec9b40b6666d1089719899449d1198d6d4259663        refs/pull/1/head
+64c6cbac828dbb49cf3120cf24b30aa359d4ebd9        refs/pull/2/head
+Git exit code: 0
+```
+
+**Checkpoint:** Passed. GitHub SSH authentication and read access to `JoshuaPraveen99/epims-config` are verified. `git ls-remote` listed the remote references without cloning or changing the repository.
+
+### Step 10 — Record the completed SSH setup before configuring the Config Server
+
+Update the status table at the beginning of this section only after the corresponding tests have passed:
+
+- SSH authentication: **completed** on 11 November 2026; GitHub returned `Hi JoshuaPraveen99/epims-config! You've successfully authenticated`.
+- Git repository read test: **completed** on 11 November 2026; `git ls-remote` listed repository refs and returned exit code `0`.
+- Config Server Git-backend test: complete only after the Config Server retrieves configuration from GitHub.
+- Oracle provisioning: complete only after the same private key has been securely provisioned and tested on Oracle.
+
+### Security and Oracle deployment rule
+
+The private key must never be committed to Git, copied into a Docker image, included in a Docker build context, or stored in a normal committed environment file.
+
+The planned container secret paths are fixed across local Docker and Oracle:
+
+```text
+/run/secrets/spring.cloud.config.server.git.private-key
+/run/secrets/known_hosts
+```
+
+- The first path contains the private key supplied securely at runtime.
+- The second path contains the verified GitHub SSH host key entry.
+- Local development may mount protected files from the Windows host.
+- Oracle must securely provision the exact same private-key content through the selected secret-management process and mount it at the same path.
+- The Oracle VM administrator SSH key is a separate credential and must never be substituted for the GitHub Deploy Key.
+- Do not record the private-key contents or passphrase in this README.
+
+**Do not proceed to Config Server Git-backend configuration until Steps 8 and 9 have passed.**
+
+---
+
 ### Overview — How SSH Authentication Works
 
 **Objective:** Understand how the EPIMS Config Server securely accesses the private `epims-config` GitHub repository using SSH authentication.
@@ -2452,7 +2975,7 @@ The private key is never sent to GitHub during normal SSH authentication.
 
 #### 3. EPIMS SSH authentication flow
 
-![Config Server SSH authentication flow](docs/diagrams/config-server-ssh-flow.png)
+![Config Server SSH authentication flow](docs/diagrams/config-and-ssh-deployment.png)
 
 This diagram describes the intended architecture. The end-to-end flow will be verified after the Config Server's Git configuration is completed.
 
@@ -2479,6 +3002,12 @@ The SSH key is dedicated to the `epims-config` repository.
 - Protect the Config Server itself with authentication and network access controls.
 
 ---
+
+### Important — Do Not Regenerate the Current Key
+
+The key-generation commands in the older tutorial subsection below are retained as historical setup reference only. The current laptop key is already created and its public key is registered as the read-only Deploy Key. **Do not rerun those older commands and do not generate another key for Oracle.** Continue with the test commands in the current implementation record above. The exact private key created on this laptop is the one that must later be securely provisioned to the Oracle-hosted Config Server.
+
+For Oracle deployment, securely transfer/provision the same private key to the Config Server runtime. Never put it in Git, the Docker image, the Docker build context, or a committed `.env` file. Keep the Config Server secret file path consistent between local and Oracle environments.
 
 ### Step 10.6.1 — Create the SSH Directory and Generate a Dedicated SSH Key
 
@@ -2965,7 +3494,7 @@ The endpoint should return the EPS configuration environment, including its appl
 
 **Configuration flow diagram:**
 
-![EPS Config Client and Config Server request flow](docs/diagrams/config-server-ssh-flow.png)
+![EPS Config Client and Config Server request flow](docs/diagrams/config-and-ssh-deployment.png)
 #### Step 10.7.5.1 — Add Spring Cloud Config Client
 
 **Objective:** Add the client library required for EPS Core to retrieve centralized configuration from EPIMS Config Server.
@@ -3839,158 +4368,1257 @@ The original, incorrect role on `epims_eps` may remain assigned. Remove it only 
 
 ### Objective
 
-Prepare the existing `epims-config-server` Spring Boot application for containerized deployment through the `epims-infrastructure` repository.
+Prepare the existing `epims-config-server` Spring Boot application for secure containerized deployment through the separate `epims-infrastructure` repository.
 
-The Config Server retrieves non-secret configuration from the private `epims-config` Git repository. It must not embed private SSH keys, Git credentials, or application passwords in its source code, Docker image, or committed configuration.
+The Config Server retrieves non-secret application configuration from the private `epims-config` Git repository over SSH. Its GitHub Deploy Key must be supplied at runtime and must never be committed to Git, copied into the Docker image, or embedded in application configuration.
 
-### 6.1 Inspect the Existing Config Server
+### 6.1 Repository responsibilities
 
-Local project path:
+The EPIMS repositories have separate responsibilities:
 
-`C:\Users\swoni\Documents\epims\epims-config-server`
+| Repository | Responsibility |
+|---|---|
+| `epims-eps-core` | EPS application backend |
+| `epims-config` | Centralized application configuration; placeholders only, no real secrets |
+| `epims-config-server` | Spring Cloud Config Server application and its Dockerfile |
+| `epims-infrastructure` | Docker Compose orchestration, deployment configuration, and local runtime secret directory |
 
-GitHub repository:
+Docker Compose belongs in `epims-infrastructure`. The Config Server Dockerfile belongs beside the Config Server source in `epims-config-server`.
 
-`https://github.com/JoshuaPraveen99/epims-config-server`
+### 6.2 Current Windows workspace
 
-The existing project uses Java 25, Spring Boot 4.0.9, and Spring Cloud Config Server. These versions must be preserved unless a compatibility issue is identified and explicitly addressed.
+The current Config Server repository path is:
 
-### 6.2 Verify the Project Files
+`C:\Users\Joshua\Desktop\epims\epims-config-server`
 
-Run:
+The current infrastructure repository path is:
 
-```powershell
-Set-Location "C:\Users\swoni\Documents\epims\epims-config-server"
+`C:\Users\Joshua\Desktop\epims\epims-infrastructure`
 
-Get-ChildItem -Force
+GitHub repositories:
 
-Test-Path ".\Dockerfile"
-Test-Path ".\build.gradle.kts"
-Test-Path ".\src\main\resources\application.yml"
-```
+- `https://github.com/JoshuaPraveen99/epims-config-server`
+- `https://github.com/JoshuaPraveen99/epims-config`
+- `https://github.com/JoshuaPraveen99/epims-infrastructure`
 
-### 6.3 Review the Build Configuration
+The infrastructure repository already exists and contains `compose.yaml`, `.env.example`, `.gitignore`, and the existing MongoDB deployment. Extend these files; do not create a second infrastructure repository or replace the existing Compose file.
 
-Run:
+### 6.3 Config Server build and runtime versions
 
-```powershell
-Get-Content ".\build.gradle.kts"
-```
+The current `epims-config-server/build.gradle.kts` uses:
 
-Confirm that the existing Java toolchain, Spring Boot plugin, Spring Cloud dependencies, and test configuration are preserved.
+| Component | Configured/resolved version |
+|---|---:|
+| Java toolchain | 25 |
+| Spring Boot Gradle plugin | 4.0.9 |
+| Spring Cloud release train | 2025.1.4 |
+| Spring Cloud Config Server | 5.0.6 |
+| Eclipse JGit | 7.4.0.202509020913-r |
+| JGit SSH Apache | 7.4.0.202509020913-r |
+| Apache MINA SSHD | 2.16.0 |
+| Bouncy Castle `bcprov-jdk18on` | 1.85.2 |
 
-### 6.4 Review the Application Configuration
-
-Run:
-
-```powershell
-Get-Content ".\src\main\resources\application.yml"
-```
-
-Confirm that the configuration references the private Git repository and uses an environment-provided private key rather than a committed credential.
-
-Never include the contents of private keys or actual secret values in this documentation.
-
-### 6.5 Verify Repository State
-
-Run:
+The runtime dependency checks were run from `epims-config-server`:
 
 ```powershell
-git status
-git remote -v
+.\gradlew.bat dependencyInsight `
+  --dependency spring-cloud-config-server `
+  --configuration runtimeClasspath
+
+.\gradlew.bat dependencyInsight `
+  --dependency org.eclipse.jgit `
+  --configuration runtimeClasspath
+
+.\gradlew.bat dependencies --configuration runtimeClasspath |
+  Select-String -Pattern "sshd|jsch|jgit|spring-cloud-config"
+
+.\gradlew.bat dependencyInsight `
+  --dependency bcprov-jdk18on `
+  --configuration runtimeClasspath
+
+.\gradlew.bat dependencyInsight `
+  --dependency eddsa `
+  --configuration runtimeClasspath
+
+.\gradlew.bat dependencyInsight `
+  --dependency bcpg-jdk18on `
+  --configuration runtimeClasspath
 ```
 
-Confirm that the working directory belongs to the expected Config Server repository.
+What these commands establish:
 
-### 6.6 Security Requirements
+- `dependencyInsight` identifies the selected dependency version and why Gradle selected it.
+- `runtimeClasspath` reports libraries available when the application runs.
+- `dependencies` prints the dependency tree.
+- `Select-String` filters the tree to Git and SSH-related libraries.
 
-1. Do not commit private SSH keys or Git credentials.
-2. Do not copy private keys into the Docker image.
-3. Keep private configuration-repository access separate from application runtime secrets.
-4. Preserve the existing Git host-key verification configuration.
-5. Do not expose the Config Server publicly by default.
-6. Use Docker service DNS for communication between containers.
-7. Validate the container build before integrating the service into the main Compose deployment.
+Observed results:
 
-### 6.7 Completion Checklist
+- Spring Cloud Config Server resolved to `5.0.6`.
+- JGit and `org.eclipse.jgit.ssh.apache` resolved to `7.4.0.202509020913-r`.
+- Apache MINA SSHD artifacts resolved to `2.16.0`.
+- Bouncy Castle `bcprov-jdk18on` resolved to `1.85.2`.
+- No dependency matching `eddsa` was found.
+- No dependency matching `bcpg-jdk18on` was found.
 
-- [ ] Confirmed the Config Server repository location.
-- [ ] Inspected the existing Dockerfile status.
-- [ ] Reviewed `build.gradle.kts`.
-- [ ] Reviewed `application.yml`.
-- [ ] Verified Git repository state.
-- [ ] Confirmed that no private key or credential will be committed.
+These dependency results are useful for compatibility analysis, but they do not prove that the Config Server can parse and decrypt the actual private key. A successful application startup and Git clone are still required. Do not add dependencies or replace the key merely because the optional `eddsa` artifact is absent.
 
-**Step 6 status:** Pending inspection.
+### 6.4 Create and verify the dedicated GitHub Deploy Key
 
-**Next step:** Create or refine the Config Server Dockerfile and design secure runtime delivery of its private Git SSH key.
+A new Windows laptop was prepared. The dedicated key was generated once on that laptop and registered as a read-only Deploy Key on the private `epims-config` repository.
 
+Key details:
 
-### 6.2 Make Config Server Configuration Container-Independent
+| Item | Verified value |
+|---|---|
+| Algorithm | ED25519 |
+| Private-key path | `C:\Users\Joshua\.ssh\epims-config-server` |
+| Public-key path | `C:\Users\Joshua\.ssh\epims-config-server.pub` |
+| Key comment | `epims-config-server-github` |
+| Fingerprint | `SHA256:oUtkmOFnEtx0qusj2w+D7SuUafXwwVu+WFmiQt5JrJk` |
+| Private-key file format | `-----BEGIN OPENSSH PRIVATE KEY-----` |
+| GitHub Deploy Key permission | Read-only |
 
-The Config Server must not depend on a developer's home directory or workstation-specific SSH configuration.
+The key-generation command used was:
 
-The previous configuration referenced:
+```powershell
+ssh-keygen -t ed25519 -a 100 `
+  -f "$env:USERPROFILE\.ssh\epims-config-server" `
+  -C "epims-config-server-github"
+```
+
+Line-by-line meaning:
+
+- `ssh-keygen` starts the OpenSSH key-generation utility.
+- `-t ed25519` selects the Ed25519 public-key algorithm.
+- `-a 100` sets the bcrypt KDF rounds used to protect the encrypted private key.
+- `-f` specifies the output file path and creates the private and `.pub` public-key files.
+- `-C` adds a descriptive comment to identify the key.
+
+The user set a passphrase interactively. The passphrase is not documented here.
+
+The public key was registered in GitHub under the `epims-config` repository's Deploy Keys settings, with write access disabled.
+
+### 6.5 Verify SSH authentication and Git read access
+
+The following checks were completed:
+
+```powershell
+Get-Content "$env:USERPROFILE\.ssh\epims-config-server" -TotalCount 1
+
+ssh-keygen -lf "$env:USERPROFILE\.ssh\epims-config-server.pub"
+
+ssh-keygen -F github.com -f "$env:USERPROFILE\.ssh\known_hosts"
+```
+
+Expected/observed facts:
+
+- The private key header is `-----BEGIN OPENSSH PRIVATE KEY-----`.
+- The public key is 256-bit ED25519 and its fingerprint matches the fingerprint recorded above.
+- GitHub host-key entries were found in `known_hosts` for ED25519, RSA, and ECDSA.
+
+The GitHub ED25519 host fingerprint was checked against GitHub's published fingerprint before accepting the first SSH connection.
+
+Authentication was successfully tested:
+
+```powershell
+ssh -T `
+  -i "$env:USERPROFILE\.ssh\epims-config-server" `
+  -o IdentitiesOnly=yes `
+  git@github.com
+```
+
+Successful output:
+
+```text
+Hi JoshuaPraveen99/epims-config! You've successfully authenticated, but GitHub does not provide shell access.
+```
+
+Read access to the private repository was also verified:
+
+```powershell
+git ls-remote git@github.com:JoshuaPraveen99/epims-config.git
+```
+
+The command returned the repository's `HEAD`, `main`, `release/nova`, and other available refs with exit code 0.
+
+This confirms that the GitHub Deploy Key works from the Windows host. It does not yet prove that JGit inside the Config Server container can use the key.
+
+### 6.6 Container-independent Config Server application configuration
+
+The Config Server must not depend on a developer's Windows home directory or local SSH-agent configuration.
+
+The application configuration was updated at:
+
+`epims-config-server/src/main/resources/application.yml`
+
+Current saved configuration:
 
 ```yaml
-known-hosts-file: ${user.home}/.ssh/known_hosts
-```
+server:
+  port: 8888
 
-This path depends on the runtime user's home directory and may not exist inside the container.
-
-The container configuration now uses a fixed path:
-
-```yaml
-known-hosts-file: /run/secrets/known_hosts
-```
-
-The private key will be supplied through a runtime-mounted secret file. Spring Boot configuration-tree import is enabled using:
-
-```yaml
 spring:
+  application:
+    name: epims-config-server
+
   config:
-    import: "optional:configtree:/run/secrets/"
+    import: "configtree:/run/secrets/"
+
+  cloud:
+    config:
+      server:
+        git:
+          uri: git@github.com:JoshuaPraveen99/epims-config.git
+          default-label: main
+          clone-on-start: true
+          ignore-local-ssh-settings: true
+          known-hosts-file: /run/secrets/known_hosts
+          strict-host-key-checking: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+  endpoint:
+    health:
+      show-details: never
+
+info:
+  app:
+    name: EPIMS Config Server
+    description: Centralized configuration service for EPIMS
+    version: 0.1.0
 ```
 
-The private-key secret file must be mounted using this filename:
+Line-by-line and property explanations:
 
-`/run/secrets/spring.cloud.config.server.git.private-key`
+| Property | Meaning |
+|---|---|
+| `server.port: 8888` | Runs the Config Server HTTP endpoint on port 8888 inside its container. |
+| `spring.application.name` | Names this Spring Boot application. |
+| `spring.config.import: "configtree:/run/secrets/"` | Loads files in `/run/secrets/` as Spring properties using each filename as a property name. |
+| `git.uri` | SSH URL of the private `epims-config` repository. |
+| `default-label: main` | Uses the `main` Git branch by default. |
+| `clone-on-start: true` | Attempts to clone the remote configuration repository during startup, allowing Git access failures to be detected early. |
+| `ignore-local-ssh-settings: true` | Uses explicitly configured SSH settings rather than depending on workstation SSH configuration. |
+| `known-hosts-file` | Uses the mounted, previously verified GitHub host-key file. |
+| `strict-host-key-checking: true` | Requires SSH host-key verification. |
+| `management.endpoints.web.exposure.include` | Exposes only the `health` and `info` Actuator endpoints over HTTP. |
+| `management.endpoint.health.show-details: never` | Prevents detailed health information from being exposed. |
+| `info.app.*` | Provides non-secret application metadata. |
 
-Spring Boot maps the filename to the property:
-
-`spring.cloud.config.server.git.private-key`
-
-The Git backend continues to use the private repository:
-
-`git@github.com:JoshuaPraveen99/epims-config.git`
-
-The following security settings remain enabled:
+The previous explicit property:
 
 ```yaml
-ignore-local-ssh-settings: true
-strict-host-key-checking: true
+private-key: ${CONFIG_GIT_PRIVATE_KEY}
 ```
 
-### 6.3 Secret Delivery Requirements
+was removed. It expected an environment variable and did not automatically read the private key from the Config Tree directory.
 
-1. Do not copy the private SSH key into the Docker image.
-2. Do not commit private keys or actual credentials to Git.
-3. Mount the private key only into the Config Server container.
-4. Mount a verified GitHub host-key file at `/run/secrets/known_hosts`.
-5. Keep strict SSH host-key verification enabled.
-6. Use environment-specific secret delivery without changing the application configuration.
-7. Use the planned secret-management integration for production deployments rather than relying on a developer's profile directory.
+Instead, the private-key and passphrase properties will be supplied by files mounted at these exact paths:
 
-### 6.4 Completion Checklist
+```text
+/run/secrets/
+├── spring.cloud.config.server.git.private-key
+├── spring.cloud.config.server.git.passphrase
+└── known_hosts
+```
 
-- [x] Identified the workstation-dependent `user.home` reference.
-- [x] Selected a fixed container path for SSH host-key verification.
-- [x] Selected Spring Boot configuration-tree import for private-key delivery.
-- [ ] Created the Config Server Dockerfile.
-- [ ] Added the Config Server service and secret mounts to Compose.
-- [ ] Verified private repository access from the container.
-- [ ] Verified the Config Server health endpoint.
+The filename `spring.cloud.config.server.git.private-key` maps to the Spring property `spring.cloud.config.server.git.private-key`. The passphrase filename maps to `spring.cloud.config.server.git.passphrase`.
 
-**Step 6 status:** Container-independent configuration designed; container build and runtime verification remain pending.
+The Config Tree import is mandatory in the current saved YAML (it does not use the `optional:` prefix). Missing or inaccessible secret files should therefore be treated as a deployment configuration failure and investigated rather than silently ignored.
 
-**Next step:** Create the Config Server Dockerfile and add the service to `compose.yaml`.
+### 6.7 Prepare local runtime secrets in `epims-infrastructure`
+
+The current infrastructure repository path is:
+
+`C:\Users\Joshua\Desktop\epims\epims-infrastructure`
+
+The existing repository contains:
+
+- `compose.yaml`
+- `.env.example`
+- `.gitignore`
+- `LICENSE`
+
+The existing `compose.yaml` already defines MongoDB 8. Its current service must be preserved while adding the Config Server.
+
+Existing MongoDB configuration facts:
+
+| Setting | Existing value |
+|---|---|
+| Image | `mongo:8` |
+| Container name | `epims-mongodb` |
+| Command | `mongod --auth` |
+| Host binding | `127.0.0.1:27017:27017` |
+| Database volume | External volume `epims-eps-core-data` |
+| Config DB volume | External volume with the existing long volume name in `compose.yaml` |
+| Health check | `mongosh` ping command |
+
+The existing `.env.example` includes:
+
+- `EPIMS_ENV=development`
+- `EPIMS_TIMEZONE=Asia/Kolkata`
+- MongoDB image, host, port, database, and authentication-database placeholders.
+- MongoDB administrator and application-account placeholders.
+- Config Server host and port (`epims-config-server` and `8888`).
+- OpenBao host and port placeholders.
+- Secret Management API host and port placeholders.
+
+Keep `.env.example` as a template. Never put real passwords, SSH passphrases, or private-key contents in it.
+
+#### 6.7.1 Create the local secrets directory
+
+From PowerShell:
+
+```powershell
+cd "$env:USERPROFILE\Desktop\epims\epims-infrastructure"
+
+New-Item -ItemType Directory -Path ".\secrets" -Force
+```
+
+Explanation:
+
+- `cd` changes the current directory to the infrastructure repository.
+- `New-Item` creates a filesystem item.
+- `-ItemType Directory` specifies that the item is a folder.
+- `-Path ".\secrets"` creates the folder under the repository root.
+- `-Force` avoids an error if the directory already exists.
+
+#### 6.7.2 Copy the existing private key and verified host keys
+
+```powershell
+Copy-Item `
+  "$env:USERPROFILE\.ssh\epims-config-server" `
+  ".\secrets\config-private-key"
+
+Copy-Item `
+  "$env:USERPROFILE\.ssh\known_hosts" `
+  ".\secrets\known_hosts"
+```
+
+Explanation:
+
+- `Copy-Item` copies the existing key and host-key file; it does not generate a new key.
+- The private key remains encrypted with its original passphrase.
+- `known_hosts` preserves the host-key entries that were verified on the Windows laptop.
+
+The copied files were verified by listing only their names and sizes:
+
+```powershell
+Get-ChildItem .\secrets | Select-Object Name, Length
+```
+
+Observed results at that stage:
+
+| File | Size |
+|---|---:|
+| `config-private-key` | 464 bytes |
+| `known_hosts` | 831 bytes |
+
+#### 6.7.3 Protect the entire secrets directory with Git ignore rules
+
+The complete current `.gitignore` is:
+
+```gitignore
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Private keys, certificates, and credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+
+# EPIMS Config Server runtime secrets
+secrets/
+
+# OpenBao local state and sensitive runtime data
+openbao/data/
+openbao/logs/
+openbao/secrets/
+openbao/*.token
+**/root-token
+**/unseal-keys
+
+# MongoDB local data and backups
+mongodb-data/
+backups/
+*.dump
+*.bson
+*.archive
+
+# Logs
+*.log
+logs/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE and editor files
+.idea/
+.vscode/
+*.iml
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.bak
+
+# Build outputs
+build/
+out/
+target/
+.gradle/
+```
+
+The added rule is:
+
+```gitignore
+secrets/
+```
+
+It excludes the entire local runtime secrets directory, including extensionless files such as `config-private-key` and `config-passphrase`.
+
+Verify the ignore rule using:
+
+```powershell
+git check-ignore -v .\secrets\config-private-key
+git check-ignore -v .\secrets\known_hosts
+git check-ignore -v .\secrets\config-passphrase
+```
+
+All three checks succeeded and identified `.gitignore` line 19 (`secrets/`) as the matching rule.
+
+#### 6.7.4 Create the passphrase file without displaying its contents
+
+The passphrase was entered interactively using `Read-Host -AsSecureString`, then written to:
+
+`epims-infrastructure/secrets/config-passphrase`
+
+The PowerShell procedure used was:
+
+```powershell
+$securePassphrase = Read-Host "Enter your EPIMS SSH key passphrase" -AsSecureString
+
+$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassphrase)
+
+try {
+    $plainPassphrase = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+
+    $secretPath = Join-Path (Get-Location) "secrets\config-passphrase"
+
+    [System.IO.File]::WriteAllText(
+        $secretPath,
+        $plainPassphrase,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+}
+finally {
+    if ($bstr -ne [IntPtr]::Zero) {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    }
+
+    $plainPassphrase = $null
+    $securePassphrase.Dispose()
+}
+
+Write-Host "Passphrase file created successfully."
+```
+
+Explanation:
+
+- `Read-Host -AsSecureString` requests the passphrase without echoing it to the terminal.
+- `SecureStringToBSTR` temporarily converts the value so it can be written to a file.
+- `PtrToStringBSTR` obtains the temporary string needed by `WriteAllText`.
+- `Join-Path` constructs the path under the current infrastructure repository.
+- `WriteAllText` writes the passphrase using UTF-8 without a byte-order mark.
+- `finally` ensures cleanup runs even if writing fails.
+- `ZeroFreeBSTR` clears the unmanaged BSTR buffer.
+- `Dispose()` releases the `SecureString`.
+
+The user confirmed the passphrase is five characters. The file was listed as 5 bytes. The contents were not displayed or added to this README.
+
+The final local secret directory was verified by filename and size only:
+
+| File | Size |
+|---|---:|
+| `config-private-key` | 464 bytes |
+| `config-passphrase` | 5 bytes |
+| `known_hosts` | 831 bytes |
+
+The passphrase file was also verified as Git-ignored.
+
+**Security note:** Git ignore rules do not remove a file that was already tracked. Before any commit, verify that none of the secret files is tracked. Do not print the secret file contents. Protect the Windows account and local disk. For production, provision secrets through an approved secret-management mechanism rather than committing them or copying them into an image.
+
+### 6.8 Oracle Cloud deployment consistency
+
+The long-term deployment requirement is to use the same Config Server application configuration, secret property names, container paths, and image between local Docker Compose and Oracle Cloud.
+
+- The GitHub Deploy Key is generated on the Windows laptop and registered as a read-only Deploy Key on `epims-config`.
+- Do not generate a replacement GitHub Deploy Key on Oracle.
+- Provision the same private-key material and its passphrase to Oracle through an approved secret-management mechanism.
+- The Oracle VM administration SSH key is a separate credential and must not be confused with the GitHub Deploy Key.
+- Do not place secrets in Git, Docker build context, Docker image layers, `.env.example`, or README.
+- Keep the Config Server and MongoDB on private container networking; do not expose MongoDB publicly.
+- Use the same secret filenames/property names and `/run/secrets/` paths in both environments.
+
+The initial Oracle deployment target remains an Oracle Cloud Compute VM with Docker Compose. Kubernetes is not required for this initial deployment.
+
+### 6.9 Current progress and next actions
+
+Completed:
+
+- [x] Confirmed the four-repository responsibility split.
+- [x] Confirmed the Config Server project uses Java 25 and Spring Boot 4.0.9.
+- [x] Resolved and inspected Spring Cloud Config, JGit, Apache MINA SSHD, and Bouncy Castle runtime dependencies.
+- [x] Generated the dedicated ED25519 GitHub Deploy Key on the Windows laptop.
+- [x] Registered the public key as a read-only Deploy Key on `epims-config`.
+- [x] Verified GitHub SSH authentication.
+- [x] Verified `git ls-remote` read access to the private `epims-config` repository.
+- [x] Verified GitHub host-key entries in the Windows `known_hosts` file.
+- [x] Updated and saved the Config Server `application.yml` to use mandatory Config Tree import and fixed container paths.
+- [x] Confirmed that `epims-infrastructure` already has a Compose file and MongoDB service.
+- [x] Created `epims-infrastructure/secrets/`.
+- [x] Copied the existing encrypted private key and verified `known_hosts` file into the local secrets directory.
+- [x] Added `secrets/` to `.gitignore`.
+- [x] Verified Git ignores the private key, host-key file, and passphrase file.
+- [x] Created the five-character passphrase file without displaying its contents.
+
+Not yet completed:
+
+- [ ] Confirm whether the proposed Config Server Dockerfile has been created and saved.
+- [ ] Add a Config Server service to the existing `epims-infrastructure/compose.yaml` while preserving MongoDB and its external volumes.
+- [ ] Configure Docker secret mounts for the private key, passphrase, and `known_hosts`.
+- [ ] Verify that the container can read the secret files.
+- [ ] Build and start the Config Server container.
+- [ ] Verify that JGit/Apache MINA SSHD can decrypt the existing ED25519 key and clone `epims-config`.
+- [ ] Verify Config Server health and the configuration endpoint.
+- [ ] Verify that no secret files are tracked by Git.
+- [ ] Document and test the equivalent Oracle Cloud secret provisioning.
+
+**Step 6 status:** SSH setup, host-side Git access, container-independent application configuration, and local secret preparation are complete. Container build and Config Server runtime verification remain pending.
+
+**Next action:** Confirm the Config Server Dockerfile contents and save status. Then review the Docker build context and add the Config Server to the existing `compose.yaml` in a controlled change.
+
+---
+
+## Architecture Diagram Assets
+
+The following editable/source and rendered diagram files are maintained with this README:
+
+| Diagram | Rendered image | Editable source |
+|---|---|---|
+| EPIMS platform architecture | `docs/diagrams/epims-platform-architecture.png` | `docs/diagrams/epims-platform-architecture.dot` |
+| EPS order workflow | `docs/diagrams/eps-order-workflow.png` | `docs/diagrams/eps-order-workflow.dot` |
+| Central configuration and SSH deployment | `docs/diagrams/config-and-ssh-deployment.png` | `docs/diagrams/config-and-ssh-deployment.dot` |
+
+Keep the complete `docs/diagrams/` folder when committing or sharing this README.
+
+# 11. Reposilite — Local Docker Hosting and Maven Artifact Publishing
+
+## 11.1 Two separate operations
+
+- **Host Reposilite:** Pull and run the Reposilite Docker image as a persistent service.
+- **Publish to Reposilite:** Configure Gradle to upload application JAR/POM files to the running Maven repository.
+
+The first operation is documented in Sections 11.2–11.8. The second is documented in Sections 11.9–11.15.
+
+## 11.2 Reposilite image and container architecture
+
+Pinned image:
+
+```text
+ghcr.io/dzikoysk/reposilite:3.6.7
+```
+
+The image is pulled from GitHub Container Registry. `3.6.7` pins the tested release tag; avoid `latest` for reproducibility.
+
+```mermaid
+flowchart TD
+    A["Windows 11 workstation"] --> B["Docker Desktop / Docker Engine"]
+    B --> C["Docker Compose<br/>epims-infrastructure"]
+    C --> D["epims-reposilite<br/>Reposilite 3.6.7"]
+    D --> E["Container port 8080"]
+    E --> F["Host 127.0.0.1:8081"]
+    D --> G["/app/data"]
+    G --> H["epims-reposilite-data<br/>named volume"]
+    I["Gradle Publish task"] --> F
+
+    classDef host fill:#EAF2FF,stroke:#7895C5,color:#17365D
+    classDef service fill:#E8F5E9,stroke:#81A88A,color:#174D2A
+    classDef storage fill:#FFF4E5,stroke:#C89B55,color:#69410A
+    class A,B,C,F,I host
+    class D,E service
+    class G,H storage
+```
+
+## 11.3 Reposilite Compose configuration
+
+Add the following service under the **existing single** top-level `services:` key in `epims-infrastructure/compose.yaml`. Add the named volume under the **existing single** top-level `volumes:` key. Do not replace the MongoDB service or duplicate YAML top-level keys.
+
+```yaml
+  reposilite:
+    image: ghcr.io/dzikoysk/reposilite:3.6.7
+    container_name: epims-reposilite
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - epims-reposilite-data:/app/data
+    environment:
+      JAVA_OPTS: "-Xmx256M"
+    stdin_open: true
+    tty: true
+
+# Merge this declaration into the existing top-level volumes section.
+volumes:
+  epims-reposilite-data:
+```
+
+### Explanation of each Compose property
+
+| Property | Explanation |
+|---|---|
+| `reposilite` | Compose service name used by commands. |
+| `image` | Selects the pinned Reposilite 3.6.7 image. Docker pulls it if not present locally. |
+| `container_name` | Gives the container the stable name `epims-reposilite`. |
+| `restart: unless-stopped` | Restarts after failures/daemon restart unless an operator explicitly stopped it. |
+| `127.0.0.1:8081:8080` | Host port 8081 is bound only to loopback and forwarded to container port 8080. This is local-only, not a cloud/public ingress rule. |
+| `epims-reposilite-data:/app/data` | Persists Reposilite state and repository files outside the disposable container layer. |
+| `JAVA_OPTS: "-Xmx256M"` | Sets JVM maximum heap to 256 MB for this local configuration; production sizing must be measured. |
+| `stdin_open: true` | Keeps standard input open for interactive console use. |
+| `tty: true` | Allocates a pseudo-terminal for interactive console use. |
+| top-level `volumes` | Declares Docker-managed persistent volumes. |
+
+**Data protection:** Never use `docker compose down -v` or `docker volume rm epims-reposilite-data` as ordinary cleanup. These operations can delete published artifacts and Reposilite state.
+
+## 11.4 Pull, validate and start the image
+
+Run from PowerShell:
+
+```powershell
+Set-Location "C:\Users\Joshua\Desktop\epims\epims-infrastructure"
+```
+
+`Set-Location` moves the shell to the directory containing `compose.yaml`.
+
+Pull the exact image:
+
+```powershell
+docker pull ghcr.io/dzikoysk/reposilite:3.6.7
+```
+
+- `docker pull` downloads the image.
+- The fully qualified image reference identifies the registry, image and pinned version.
+- Pulling does not start a container.
+
+Validate Compose:
+
+```powershell
+docker compose config --quiet
+```
+
+This parses the Compose model and reports errors without printing the fully rendered configuration.
+
+List configured services:
+
+```powershell
+docker compose config --services
+```
+
+Expected services include:
+
+```text
+mongodb
+reposilite
+```
+
+Start Reposilite:
+
+```powershell
+docker compose up -d reposilite
+```
+
+- `up` creates or updates the service.
+- `-d` runs it detached in the background.
+- The service name limits this operation to Reposilite and required dependencies; it does not intentionally recreate MongoDB.
+
+## 11.5 Verify container, logs, UI and storage
+
+Container status:
+
+```powershell
+docker compose ps reposilite
+```
+
+Recent logs:
+
+```powershell
+docker logs --tail 100 epims-reposilite
+```
+
+`--tail 100` displays the last 100 log lines. Review output for successful startup and listening port. Do not publish logs if they contain secrets.
+
+Open the UI:
+
+```text
+http://localhost:8081
+```
+
+Inspect the named volume:
+
+```powershell
+docker volume inspect epims-reposilite-data
+```
+
+Inspect the actual mount:
+
+```powershell
+docker inspect epims-reposilite --format '{{json .Mounts}}'
+```
+
+Expected mount relationship:
+
+```text
+epims-reposilite-data -> /app/data
+```
+
+This confirms the container's data directory is backed by a named volume.
+
+## 11.6 First-run Reposilite administration
+
+The local UI was opened at `http://localhost:8081`. The instance displayed the Reposilite repository overview. The following repositories were observed:
+
+| Repository | Visibility | Intended use |
+|---|---|---|
+| `releases` | Public read | Versioned release artifacts |
+| `snapshots` | Public read | Development snapshot artifacts |
+| `private` | Private | Reserved; not used by current Config Server publishing |
+
+The administrator token alias `epims-admin` was created for administrative tasks. It must not be used by Gradle.
+
+Two persistent least-privilege publishing tokens were created:
+
+| Alias | Route | Permission | Used for |
+|---|---|---|---|
+| `epims-release-publisher` | `/releases` | Read + write | Release publishing |
+| `epims-snapshot-publisher` | `/snapshots` | Read + write | Snapshot publishing |
+
+Token alias is the Maven repository username; generated token secret is the password. The secret values are stored only in the local ignored `.env` file. They are intentionally not included in this README.
+
+**Fresh-instance warning:** An empty new volume will not automatically contain these repository definitions or token records. Recreate them in the Reposilite UI/console and verify routes/permissions before publishing. If restoring an existing installation, restore the backed-up Reposilite data volume instead of initializing an unrelated empty instance.
+
+## 11.7 Existing infrastructure and volume safety
+
+The existing MongoDB service must remain in the same Compose project. Its previously verified data volume is `epims-eps-core-data`; the auxiliary config volume was an existing long Docker volume name recorded in the supplied README. Do not replace those declarations with newly named empty volumes.
+
+Before changing a container with a name collision, inspect it:
+
+```powershell
+docker ps -a --filter "name=epims-reposilite"
+docker inspect epims-reposilite
+```
+
+If replacing a standalone container with a Compose-managed container, first confirm its image and mount. Remove only the container if the existing named volume is intentionally being reused. Do not use `docker rm -v`, and do not delete the named volume.
+
+## 11.8 Hosting verification record
+
+- [x] Reposilite image selected: `ghcr.io/dzikoysk/reposilite:3.6.7`.
+- [x] Container `epims-reposilite` observed.
+- [x] Host binding `127.0.0.1:8081:8080` configured.
+- [x] Persistent volume `epims-reposilite-data:/app/data` configured.
+- [x] `JAVA_OPTS=-Xmx256M` configured.
+- [x] UI opened at `http://localhost:8081`.
+- [x] `releases`, `snapshots`, and `private` repositories observed.
+- [x] Admin and separate publisher token aliases created.
+- [ ] Clean-room startup from an empty volume documented and independently retested.
+- [ ] Reposilite backup/restore procedure executed and verified.
+- [ ] Cloud HTTPS/reverse proxy/network policy configured.
+
+**Status:** Local Reposilite hosting and artifact storage are verified. Cloud hosting and disaster recovery are not complete.
+
+## 11.9 Gradle Maven Publish configuration
+
+Repository: `epims-config-server`
+
+File: `build.gradle.kts`
+
+The current project build uses Java 25, Spring Boot 4.0.9, dependency-management plugin 1.1.7 and Spring Cloud BOM 2025.1.4. The Maven Publish plugin is added to publish the executable Boot JAR.
+
+```kotlin
+import org.gradle.api.publish.maven.MavenPublication
+
+plugins {
+    java
+    id("org.springframework.boot") version "4.0.9"
+    id("io.spring.dependency-management") version "1.1.7"
+    id("maven-publish")
+}
+
+val isSnapshotVersion = version.toString().endsWith("-SNAPSHOT")
+
+val reposiliteUsername = providers.environmentVariable(
+    if (isSnapshotVersion) "REPOSILITE_SNAPSHOT_USERNAME"
+    else "REPOSILITE_RELEASE_USERNAME"
+)
+
+val reposilitePassword = providers.environmentVariable(
+    if (isSnapshotVersion) "REPOSILITE_SNAPSHOT_TOKEN"
+    else "REPOSILITE_RELEASE_TOKEN"
+)
+
+publishing {
+    publications {
+        create<MavenPublication>("bootJava") {
+            groupId = project.group.toString()
+            artifactId = "epims-config-server"
+            version = project.version.toString()
+            artifact(tasks.named("bootJar"))
+        }
+    }
+
+    repositories {
+        maven {
+            name = "reposilite"
+            url = uri(
+                if (isSnapshotVersion)
+                    "http://localhost:8081/snapshots"
+                else
+                    "http://localhost:8081/releases"
+            )
+            isAllowInsecureProtocol = true
+            credentials {
+                username = reposiliteUsername.orNull ?: ""
+                password = reposilitePassword.orNull ?: ""
+            }
+        }
+    }
+}
+```
+
+### Line-by-line / property explanation
+
+- `MavenPublication` imports the publication model used by Gradle's Maven Publish plugin.
+- `id("maven-publish")` applies the plugin and creates Maven publication tasks.
+- `isSnapshotVersion` checks whether the Gradle project version ends with `-SNAPSHOT`.
+- `providers.environmentVariable(...)` reads the selected username/token from the Gradle process environment. The values are not committed in the build file.
+- `publishing` defines what is published and to which repository.
+- `create<MavenPublication>("bootJava")` names the publication `bootJava`.
+- `groupId` defines the Maven group coordinate.
+- `artifactId` defines the artifact name.
+- `version` uses the project version, supplied at publishing time by `-PreleaseVersion`.
+- `artifact(tasks.named("bootJar"))` publishes the executable Spring Boot JAR.
+- `name = "reposilite"` names the Gradle repository; this name contributes to the generated task name.
+- `url` selects `/snapshots` or `/releases` based on the version suffix.
+- `isAllowInsecureProtocol = true` permits HTTP for this local loopback development endpoint only. It must not be used for a remote/cloud endpoint.
+- `credentials` supplies the selected alias and token secret to Gradle's Maven transport.
+- `orNull ?: ""` prevents a missing provider from failing during configuration; the publishing script performs the actual non-empty credential validation before invoking Gradle.
+
+The Gradle task name is derived from publication `bootJava` and repository `reposilite`:
+
+```text
+publishBootJavaPublicationToReposiliteRepository
+```
+
+The task was verified with:
+
+```powershell
+.\gradlew.bat tasks --all |
+    Select-String "publishBootJavaPublicationToReposiliteRepository"
+```
+
+The output identified the task as publishing Maven publication `bootJava` to Maven repository `reposilite`.
+
+## 11.10 Local credential file
+
+The local infrastructure `.env` file contains these variable names:
+
+```dotenv
+REPOSILITE_RELEASE_USERNAME=epims-release-publisher
+REPOSILITE_RELEASE_TOKEN=<release-token-secret>
+
+REPOSILITE_SNAPSHOT_USERNAME=epims-snapshot-publisher
+REPOSILITE_SNAPSHOT_TOKEN=<snapshot-token-secret>
+```
+
+Replace placeholder values locally with the actual token secrets. Do not send token secrets in chat, add them to README, or commit `.env`.
+
+Check that `.env` is ignored:
+
+```powershell
+git check-ignore -v .env
+git status --short
+```
+
+- `git check-ignore -v` shows the ignore rule matching `.env`.
+- `git status --short` shows changed/untracked files.
+- If a secret was previously committed, `.gitignore` does not erase Git history. Remove it from tracking and rotate the exposed token.
+
+## 11.11 Publishing script
+
+File: `epims-infrastructure/scripts/Publish-ConfigServer.ps1`
+
+```powershell
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$Version
+)
+
+# Step 1: Validate the application version.
+if ($Version -notmatch '^\d+\.\d+\.\d+(-SNAPSHOT)?$') {
+    throw "Invalid version '$Version'. Expected format: 1.0.1 or 1.0.1-SNAPSHOT."
+}
+
+# Step 2: Locate the EPIMS repositories.
+$EpimsRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$ConfigServerPath = Join-Path $EpimsRoot "epims-config-server"
+$GradleWrapper = Join-Path $ConfigServerPath "gradlew.bat"
+
+if (-not (Test-Path $GradleWrapper -PathType Leaf)) {
+    throw "Gradle wrapper not found: $GradleWrapper"
+}
+
+# Step 3: Locate the infrastructure environment file.
+$InfrastructurePath = Split-Path -Parent $PSScriptRoot
+$EnvFile = Join-Path $InfrastructurePath ".env"
+
+if (-not (Test-Path $EnvFile -PathType Leaf)) {
+    throw "Environment file not found: $EnvFile"
+}
+
+# Step 4: Read environment variables from the .env file.
+$EnvironmentValues = @{}
+
+foreach ($Line in Get-Content -LiteralPath $EnvFile) {
+
+    $TrimmedLine = $Line.Trim()
+
+    if ([string]::IsNullOrWhiteSpace($TrimmedLine) -or $TrimmedLine.StartsWith("#")) {
+        continue
+    }
+
+    if ($TrimmedLine -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$') {
+        $Key = $Matches[1]
+        $Value = $Matches[2].Trim()
+    }
+    else {
+        throw "Invalid environment variable declaration in .env file."
+    }
+
+    if (($Value.StartsWith('"') -and $Value.EndsWith('"')) -or
+        ($Value.StartsWith("'") -and $Value.EndsWith("'"))) {
+        $Value = $Value.Substring(1, $Value.Length - 2)
+    }
+
+    $EnvironmentValues[$Key] = $Value
+}
+
+# Step 5: Select credentials based on the application version.
+if ($Version.EndsWith("-SNAPSHOT")) {
+    $UsernameKey = "REPOSILITE_SNAPSHOT_USERNAME"
+    $PasswordKey = "REPOSILITE_SNAPSHOT_TOKEN"
+}
+else {
+    $UsernameKey = "REPOSILITE_RELEASE_USERNAME"
+    $PasswordKey = "REPOSILITE_RELEASE_TOKEN"
+}
+
+# Step 6: Validate the selected credentials.
+if (-not $EnvironmentValues.ContainsKey($UsernameKey)) {
+    throw "Required credential variable '$UsernameKey' is missing from .env."
+}
+
+if (-not $EnvironmentValues.ContainsKey($PasswordKey)) {
+    throw "Required credential variable '$PasswordKey' is missing from .env."
+}
+
+$ReposiliteUsername = $EnvironmentValues[$UsernameKey]
+$ReposilitePassword = $EnvironmentValues[$PasswordKey]
+
+if ([string]::IsNullOrWhiteSpace($ReposiliteUsername) -or
+    [string]::IsNullOrWhiteSpace($ReposilitePassword)) {
+    throw "The selected Reposilite credentials cannot be empty."
+}
+
+# Step 7: Save existing process environment values.
+$PreviousUsername = [Environment]::GetEnvironmentVariable($UsernameKey, "Process")
+$PreviousPassword = [Environment]::GetEnvironmentVariable($PasswordKey, "Process")
+
+$LocationChanged = $false
+
+try {
+    # Step 8: Set credentials for the Gradle process.
+    [Environment]::SetEnvironmentVariable(
+        $UsernameKey,
+        $ReposiliteUsername,
+        "Process"
+    )
+
+    [Environment]::SetEnvironmentVariable(
+        $PasswordKey,
+        $ReposilitePassword,
+        "Process"
+    )
+
+    # Step 9: Execute Gradle publishing.
+    Push-Location $ConfigServerPath
+    $LocationChanged = $true
+
+    & $GradleWrapper `
+        --no-daemon `
+        "-PreleaseVersion=$Version" `
+        "publishBootJavaPublicationToReposiliteRepository"
+
+    $GradleExitCode = $LASTEXITCODE
+
+    if ($GradleExitCode -ne 0) {
+        throw "Gradle publishing failed with exit code $GradleExitCode."
+    }
+
+    Write-Host "Config Server artifact published successfully."
+}
+finally {
+    # Step 10: Restore the original PowerShell directory.
+    if ($LocationChanged) {
+        Pop-Location
+    }
+
+    # Step 11: Restore the original process environment variables.
+    [Environment]::SetEnvironmentVariable(
+        $UsernameKey,
+        $PreviousUsername,
+        "Process"
+    )
+
+    [Environment]::SetEnvironmentVariable(
+        $PasswordKey,
+        $PreviousPassword,
+        "Process"
+    )
+}
+```
+
+### Script explanation
+
+| Code section | What it does |
+|---|---|
+| `[CmdletBinding()]` | Enables standard PowerShell advanced-script behavior. |
+| `param(...)` | Declares the required version argument. |
+| Version regex | Accepts `major.minor.patch` with optional `-SNAPSHOT`; it is a simple project-specific validator, not a complete SemVer implementation. |
+| `$PSScriptRoot` | Refers to the directory containing this script, making path discovery independent of the shell's starting directory. |
+| `Split-Path` / `Join-Path` | Derives the workspace, Config Server and `.env` paths. |
+| `Test-Path` | Stops early if the Gradle wrapper or `.env` is missing. |
+| `$EnvironmentValues = @{}` | Creates a hashtable to hold parsed environment key/value pairs. |
+| `Get-Content` | Reads `.env` line by line. |
+| `Trim()` | Removes whitespace around each line. |
+| `IsNullOrWhiteSpace` | Skips empty lines. |
+| `StartsWith("#")` | Skips full-line comments. |
+| `-match` and `$Matches` | Parses a simple `KEY=VALUE` declaration; `$Matches[1]` is the key and `$Matches[2]` is the value. |
+| Quote handling | Removes one matching pair of outer single or double quotes. |
+| Snapshot/release branch | Selects snapshot token names for a `-SNAPSHOT` version and release token names otherwise. |
+| Credential checks | Fails before Gradle if the required username/token is missing or blank. |
+| `GetEnvironmentVariable(..., "Process")` | Saves existing process-level values for restoration. |
+| `SetEnvironmentVariable(..., "Process")` | Makes the values available to the Gradle child process without setting user- or machine-wide variables. |
+| `Push-Location` | Temporarily changes to the Config Server project directory and saves the previous location. |
+| `& $GradleWrapper` | Invokes the Windows Gradle wrapper batch file. |
+| `--no-daemon` | Uses a single-use Gradle daemon, avoiding stale daemon environment values for this publishing run. |
+| `-PreleaseVersion=$Version` | Supplies the version to the Gradle project property. |
+| Maven Publish task | Runs the configured publication to Reposilite. |
+| `$LASTEXITCODE` | Captures the native process exit code. |
+| `throw` | Reports a publishing failure when Gradle returns a non-zero exit code. |
+| `finally` | Attempts cleanup whether publishing succeeds or fails. |
+| `Pop-Location` | Restores the caller's original directory. |
+| final `SetEnvironmentVariable` calls | Restore the original process environment values. |
+
+**Parser limitation:** This is intentionally a small `.env` parser. It supports simple `KEY=VALUE`, blank lines, full-line comments, and matching outer quotes. It does not implement all Docker Compose `.env` behavior such as `export KEY=`, inline comments, interpolation, multiline values or escaped quotes.
+
+**Security limitation:** Process environment variables are preferable to hard-coded source values, but they are not a dedicated secrets manager. A sufficiently privileged process may inspect another process's environment. The script restores values in the parent PowerShell process; Gradle receives the credentials while it runs. Use protected CI secrets or OpenBao for production automation.
+
+## 11.12 PowerShell execution policy — safe local execution
+
+The successful run used:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process -Force
+```
+
+- `Set-ExecutionPolicy` changes policy at the specified scope.
+- `RemoteSigned` allows locally created scripts and requires downloaded scripts to be signed unless unblocked.
+- `Process` limits the change to the current PowerShell process.
+- `Force` suppresses the confirmation prompt.
+
+Verify:
+
+```powershell
+Get-ExecutionPolicy -List
+```
+
+Observed output:
+
+```text
+Scope          ExecutionPolicy
+-----          ---------------
+MachinePolicy  Undefined
+UserPolicy     Undefined
+Process        RemoteSigned
+CurrentUser    Undefined
+LocalMachine   Undefined
+```
+
+This did not change CurrentUser or LocalMachine policy and did not require administrator elevation. The process-scoped setting disappears when the PowerShell process closes. If an organization enforces policy through Group Policy, follow its approved script-signing or IT process; do not attempt to bypass that control.
+
+## 11.13 Run the publishing script
+
+From the infrastructure repository:
+
+```powershell
+Set-Location "C:\Users\Joshua\Desktop\epims\epims-infrastructure"
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process -Force
+.\scripts\Publish-ConfigServer.ps1 -Version "1.0.1"
+```
+
+For a new snapshot build, an example is:
+
+```powershell
+.\scripts\Publish-ConfigServer.ps1 -Version "1.0.2-SNAPSHOT"
+```
+
+Use a new version for changed release binaries. Do not overwrite/reuse an already published release version.
+
+Observed successful output:
+
+```text
+To honour the JVM settings for this build a single-use Daemon process will be forked.
+Daemon will be stopped at the end of the build
+
+BUILD SUCCESSFUL in 8s
+6 actionable tasks: 2 executed, 4 up-to-date
+Config Server artifact published successfully.
+```
+
+## 11.14 Verify the published artifact
+
+Open:
+
+```text
+http://localhost:8081
+```
+
+Navigate to:
+
+```text
+/releases/com/epims/pharmacy/epims-config-server/1.0.1/
+```
+
+The UI screenshot confirmed:
+
+```text
+epims-config-server-1.0.1.jar
+epims-config-server-1.0.1.pom
+```
+
+Observed sizes were 43.1 MB for the JAR and 1 KB for the POM. Reposilite's Gradle Kotlin tab showed:
+
+```kotlin
+implementation("com.epims.pharmacy:epims-config-server:1.0.1")
+```
+
+That coordinate is metadata for consuming the artifact. The Config Server executable JAR itself is deployed as an application, not added as a normal dependency to EPS Core.
+
+## 11.15 Publishing completion checklist
+
+- [x] Reposilite 3.6.7 is running locally.
+- [x] Release and snapshot repositories exist.
+- [x] Dedicated release and snapshot publisher tokens exist.
+- [x] Maven Publish configuration is present.
+- [x] Gradle publication task was discovered and verified.
+- [x] Publishing script was created.
+- [x] Process-only execution policy used; no system-wide policy change.
+- [x] Config Server `1.0.1` publication succeeded.
+- [x] JAR and POM visible in the Reposilite release repository.
+- [ ] Snapshot publication separately tested.
+- [ ] Remote HTTPS endpoint configured.
+- [ ] CI/CD publishing implemented.
+- [ ] Repository backup and restore tested.
+
+## 11.16 Next implementation step
+
+Complete the Config Server Dockerfile in `epims-config-server`, then add the Config Server service to the existing infrastructure Compose file. Preserve MongoDB and Reposilite services and all existing named volumes. Mount the SSH private key, passphrase and `known_hosts` at the exact `/run/secrets/` paths expected by `application.yml`. Then verify, in order:
+
+1. Container can read each mounted secret file.
+2. Spring Config Tree import loads the private key and passphrase properties.
+3. JGit/Apache MINA SSHD decrypts the key and verifies GitHub host key.
+4. Config Server clones the private `epims-config` repository.
+5. Container health endpoint succeeds.
+6. `http://localhost:8888/epims-eps-core/default` returns the expected configuration.
+7. No secret file is tracked by Git or included in the image.
+
+Do not mark the Config Server container deployment complete until all applicable checks pass.
+
+
+
+# 12. Rebuild acceptance checklist and maintenance policy
+
+## 12.1 Clean-workstation acceptance checklist
+
+- [ ] Windows/PowerShell, Git, Java toolchain, Docker Desktop and IntelliJ versions recorded and installed.
+- [ ] All four Git repositories cloned and their remote URLs/branches verified.
+- [ ] EPS Core builds using its checked-in Gradle Wrapper and documented Java toolchain.
+- [ ] `epims-config` contains only non-secret configuration/placeholders.
+- [ ] Config Server builds and its dependency versions are resolved.
+- [ ] GitHub Deploy Key is registered as read-only; host key is verified; no private key is committed.
+- [ ] MongoDB data is either restored from backup or initialized as a new environment; authentication and application role are verified.
+- [ ] Reposilite image pulled at the pinned version; named volume verified; repositories/tokens bootstrapped or restored.
+- [ ] Config Server JAR/POM can be published to Reposilite.
+- [ ] Config Server Dockerfile and Compose runtime are completed and tested.
+- [ ] Config Server secret mounts and private Git clone are verified from inside the container.
+- [ ] EPS Core can retrieve configuration and connect to MongoDB with actual secret resolution.
+- [ ] Backups and restores are tested before any production data is introduced.
+- [ ] OCI deployment, TLS, firewall rules, OpenBao, Harbor and CI/CD are completed before calling the cloud environment production-ready.
+
+## 12.2 Documentation change control
+
+For every implementation change:
+
+1. Record the final decision and rationale.
+2. Record the exact repository and file path.
+3. Include complete code/configuration when a clean rebuild depends on it.
+4. Explain each non-obvious line/property and every command.
+5. Record expected output and actual verification separately.
+6. Record security implications and recovery/rollback instructions.
+7. Update the architecture diagram and status register.
+8. Mark superseded choices as superseded; do not leave them as active alternatives.
+9. Never insert secret values, private keys, passphrases, database passwords or patient data.
+10. Do not mark a step `[VERIFIED]` based only on a successful build if runtime behavior was not tested.
+
+## 12.3 Rebuildability limitations that remain
+
+This README is the authoritative implementation record as of 15 November 2026, but it is **not yet a fully proven one-command clean-room rebuild**. The following are still required to reach that standard:
+
+- Confirm all exact tool and image versions for every repository, including the EPS Core Gradle Wrapper and MongoDB image digest.
+- Confirm the current complete `compose.yaml`, `.env.example`, `.gitignore`, Dockerfiles and all referenced files are committed in their correct repositories.
+- Confirm Config Server Dockerfile and runtime service are complete.
+- Add a safe first-run MongoDB initialization/restore procedure without assuming existing data volumes.
+- Add a Reposilite data backup/restore procedure and test it.
+- Add OpenBao initialization, unseal/recovery, policy, backup and secret-delivery steps before using it.
+- Add Harbor installation, TLS, authentication, project/robot-account and image-pull steps.
+- Add OCI account/region/capacity, network, SSH, firewall, VM, disk, Docker and Compose provisioning steps.
+- Add Jenkins installation, credentials, pipeline, artifact/image promotion, rollback and audit steps.
+- Run the entire guide on a clean machine or disposable VM and record the actual results.
+
+Until these are completed, describe the README as the **authoritative rebuild guide in progress**, not as a fully validated clean-room automation package.

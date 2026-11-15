@@ -1,0 +1,23 @@
+digraph ConfigSSH {
+  graph [rankdir=LR, bgcolor="white", pad="0.25", nodesep="0.45", ranksep="0.65", splines=ortho, fontname="Arial", label="Config Server — One SSH Identity from Local Development to Oracle Cloud", labelloc=t, fontsize=18];
+  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=10, color="#64748b", fillcolor="#f8fafc", margin="0.16,0.12"];
+  edge [color="#475569", arrowsize=0.75, penwidth=1.25, fontname="Arial", fontsize=9];
+  local [label="Developer workstation\nGenerate ONE dedicated key pair\nPrivate key stays protected", fillcolor="#eff6ff"];
+  pub [label="Public key\nRegister as read-only\nGitHub Deploy Key", fillcolor="#dcfce7"];
+  priv [label="Matching private key\nProvision securely — do not regenerate\nNo Git / image / source-code copy", fillcolor="#fee2e2"];
+  github [label="Private GitHub repo\nepims-config\nNon-secret YAML only", fillcolor="#fef3c7"];
+  localrun [label="Local Config Server container\nMount key + verified known_hosts\nSame runtime paths", fillcolor="#e0f2fe"];
+  vault [label="Oracle secret delivery\nOpenBao / OCI Vault decision\nStore same private key securely", fillcolor="#f3e8ff"];
+  oracle [label="Oracle Cloud Config Server\nMount key at /run/secrets\nMount known_hosts\nStrict host-key checking", fillcolor="#e0f2fe"];
+  clients [label="EPIMS Config Clients\nEPS • EPR • SBMO • other services", fillcolor="#dcfce7"];
+  local -> pub [label="publish public key"];
+  local -> priv [label="retain private key"];
+  pub -> github [label="GitHub verifies identity"];
+  priv -> localrun [label="secure local mount"];
+  priv -> vault [label="secure one-time provisioning"];
+  vault -> oracle [label="runtime secret mount"];
+  github -> localrun [label="SSH read-only fetch"];
+  github -> oracle [label="SSH read-only fetch"];
+  localrun -> clients [label="serve config locally"];
+  oracle -> clients [label="serve config in cloud"];
+}
